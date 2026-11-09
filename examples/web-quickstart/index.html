@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TDX / THS Web 联动快速接入</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 760px; margin: 3rem auto; padding: 0 1rem; line-height: 1.55; }
+    section { border: 1px solid #8886; border-radius: 12px; padding: 1rem; margin: 1rem 0; }
+    button, input, select { font: inherit; padding: .5rem .7rem; margin: .25rem; }
+    button { cursor: pointer; }
+    code, pre { background: #8882; border-radius: 6px; padding: .2rem .4rem; }
+    pre { min-height: 5rem; white-space: pre-wrap; }
+    .error { color: #d33; }
+  </style>
+</head>
+<body>
+  <h1>TDX / THS Web 联动</h1>
+  <p>本示例不需要登录。请通过 HTTPS 或 <code>http://localhost</code> 访问，不要直接打开 <code>file://</code>。</p>
+
+  <section>
+    <label><input id="license" type="checkbox"> 我已阅读并接受 GPL-3.0-only 许可</label><br>
+    <button id="connect">唤醒并连接本机联动服务</button>
+    <a id="installer" hidden target="_blank" rel="noopener">下载 Windows 安装包</a>
+    <button id="retry" hidden>安装后重试</button>
+    <p id="connection">尚未连接</p>
+  </section>
+
+  <section>
+    <label>股票代码 <input id="code" inputmode="numeric" maxlength="6" value="600825"></label>
+    <button id="set-tdx" disabled>设置并确认 TDX</button>
+    <button id="set-ths" disabled>设置并确认 THS</button>
+    <button id="read" disabled>读取当前状态</button>
+  </section>
+
+  <section>
+    <label>自动联动方向
+      <select id="mode">
+        <option value="off">关闭</option>
+        <option value="read-only">只读观察</option>
+        <option value="ths-to-tdx">THS → TDX</option>
+        <option value="tdx-to-ths">TDX → THS</option>
+      </select>
+    </label>
+    <button id="start" disabled>启动轮询</button>
+    <button id="stop" disabled>停止轮询</button>
+    <pre id="state">等待状态…</pre>
+  </section>
+
+  <script type="module">
+    import {
+      createStockLinkRuntime,
+      createWebLinker,
+    } from "https://cdn.jsdelivr.net/npm/tdx-ths-linker@0.1.2/dist/index.mjs";
+
+    const byId = (id) => document.getElementById(id);
+    const web = createWebLinker();
+    let runtime;
+
+    const renderState = (state) => {
+      byId("state").textContent = JSON.stringify({
+        health: state.runtimeHealth,
+        tdx: { code: state.tdx.code, available: state.tdx.available },
+        ths: { code: state.ths.code, available: state.ths.available },
+      }, null, 2);
+    };
+
+    const connect = () => {
+      byId("connection").className = "";
+      byId("connection").textContent = "正在唤醒并连接…";
+      const pending = web.connect({ licenseAccepted: byId("license").checked });
+      pending.then((result) => {
+        const connected = result.status === "connected";
+        byId("connection").textContent = `${result.status}: ${result.message}`;
+        byId("connection").className = connected ? "" : "error";
+        byId("installer").hidden = result.status !== "installer_required";
+        byId("retry").hidden = result.status !== "installer_required";
+        if (result.installerUrl) byId("installer").href = result.installerUrl;
+        for (const id of ["set-tdx", "set-ths", "read", "start", "stop"]) byId(id).disabled = !connected;
+        if (!connected) return;
+        runtime = createStockLinkRuntime({
+          client: web.client,
+          mode: byId("mode").value,
+          onState: renderState,
+          onCommand: (command) => { byId("connection").textContent = command.message; },
+          onError: (error) => { byId("connection").textContent = String(error); },
+        });
+        return web.client.getState().then(renderState);
+      }).catch((error) => {
+        byId("connection").className = "error";
+        byId("connection").textContent = String(error);
+      });
+    };
+
+    byId("connect").addEventListener("click", connect);
+    byId("retry").addEventListener("click", connect);
+    byId("read").addEventListener("click", () => web.client.getState().then(renderState));
+    const setAndConfirm = async (target) => {
+      const code = byId("code").value.trim();
+      if (!/^\d{6}$/.test(code)) return alert("请输入六位股票代码");
+      const command = await web.client.setCode(target, code);
+      if (!command.accepted) throw new Error(`${target.toUpperCase()} 拒绝设置：${command.message}`);
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        const state = await web.client.getState();
+        renderState(state);
+        if (state[target].code === code) return;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      throw new Error(`${target.toUpperCase()} 在超时前未返回目标代码`);
+    };
+    byId("set-tdx").addEventListener("click", () => setAndConfirm("tdx").catch(alert));
+    byId("set-ths").addEventListener("click", () => setAndConfirm("ths").catch(alert));
+    byId("mode").addEventListener("change", () => runtime?.setMode(byId("mode").value));
+    byId("start").addEventListener("click", () => runtime?.start());
+    byId("stop").addEventListener("click", () => runtime?.stop());
+  </script>
+</body>
+</html>

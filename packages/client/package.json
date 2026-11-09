@@ -1,6 +1,6 @@
 {
   "name": "tdx-ths-linker",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Web Agent and Node-API transports for Onclaw TDX/THS integration",
   "repository": {
     "type": "git",
@@ -9,7 +9,7 @@
   },
   "type": "module",
   "sideEffects": false,
-  "files": ["dist", "README.md"],
+  "files": ["dist", "native", "README.md"],
   "main": "./dist/index.mjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
@@ -17,13 +17,25 @@
     ".": {
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs"
+    },
+    "./native": {
+      "types": "./dist/native.d.mts",
+      "import": "./dist/native.mjs"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.mts",
+      "import": "./dist/cli.mjs"
     }
   },
+  "bin": {
+    "tdx-ths-linker": "./dist/cli-bin.mjs"
+  },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown src/index.ts src/native.ts src/cli.ts src/cli-bin.ts",
     "test": "npm run build && node --test test/*.test.mjs"
   },
   "devDependencies": {
+    "@types/node": "^22.19.0",
     "tsdown": "0.22.2",
     "typescript": "~5.6.3"
   },

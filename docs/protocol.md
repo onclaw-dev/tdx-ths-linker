@@ -2,7 +2,7 @@
 
 Windows Agent 监听 `127.0.0.1:17654`，不会绑定公网接口。浏览器必须先通过自定义协议完成用户触发的本地配对，才能访问状态与写入接口。
 
-Web 用户必须安装 GitHub Release 中的 `onclaw-tdx-ths-setup-win-x64.exe`。安装器将 Agent 放到稳定的当前用户目录并注册 `onclaw-tdx-ths://`；便携 ZIP 本身不会修改注册表，只适合手动启动。可用已安装 Agent 的 `--verify-registration` 与 `--repair` 检查或修复注册。
+Web 用户必须安装 GitHub Release 中的 `onclaw-tdx-ths-setup-win-x64.exe`。安装器将 Agent 放到稳定的当前用户目录并注册 `onclaw-tdx-ths://`；原始 Agent EXE 只作为安装器内部组件和开发输出。可用已安装 Agent 的 `--verify-registration` 与 `--repair` 检查或修复注册。
 
 ## 配对流程
 

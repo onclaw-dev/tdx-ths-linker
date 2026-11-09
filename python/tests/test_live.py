@@ -18,11 +18,21 @@ def test_live_dual_end_read_write():
             time.sleep(0.35)
         assert state is not None and state.tdx.available and state.ths.available
         assert client.set_code("tdx", target).accepted
+        for _ in range(30):
+            state = client.get_state()
+            if state.tdx.code == target:
+                break
+            time.sleep(0.35)
+        assert state.tdx.code == target
+
         assert client.set_code("ths", target).accepted
         for _ in range(30):
             state = client.get_state()
-            if state.tdx.code == target and state.ths.code == target:
+            if state.ths.code == target:
                 break
             time.sleep(0.35)
+        assert state.ths.code == target
+
+        state = client.get_state()
         assert state.tdx.code == target
         assert state.ths.code == target

@@ -31,13 +31,15 @@ export function validateVersionEntries(tag, entries) {
 }
 
 export async function readVersionEntries(root = scriptRoot) {
-  const [rootPackageText, clientPackageText, lockText, pyproject, cmake, agent] = await Promise.all([
+  const [rootPackageText, clientPackageText, lockText, pyproject, pythonPackage, cmake, agent, cliBin] = await Promise.all([
     readFile(join(root, "package.json"), "utf8"),
     readFile(join(root, "packages", "client", "package.json"), "utf8"),
     readFile(join(root, "package-lock.json"), "utf8"),
     readFile(join(root, "pyproject.toml"), "utf8"),
+    readFile(join(root, "python", "src", "tdx_ths_linker", "__init__.py"), "utf8"),
     readFile(join(root, "CMakeLists.txt"), "utf8"),
     readFile(join(root, "native", "agent", "main.cpp"), "utf8"),
+    readFile(join(root, "packages", "client", "src", "cli-bin.ts"), "utf8"),
   ]);
   const rootPackage = JSON.parse(rootPackageText);
   const clientPackage = JSON.parse(clientPackageText);
@@ -57,6 +59,10 @@ export async function readVersionEntries(root = scriptRoot) {
       version: requireMatch(pyproject, /^version\s*=\s*"([^"]+)"\s*$/m, "PyPI"),
     },
     {
+      name: "python/src/tdx_ths_linker/__init__.py",
+      version: requireMatch(pythonPackage, /^__version__\s*=\s*"([^"]+)"\s*$/m, "Python package"),
+    },
+    {
       name: "CMakeLists.txt",
       version: requireMatch(
         cmake,
@@ -71,6 +77,10 @@ export async function readVersionEntries(root = scriptRoot) {
         /#define\s+ONCLAW_TDX_THS_VERSION\s+"([^"]+)"/,
         "Agent",
       ),
+    },
+    {
+      name: "packages/client/src/cli-bin.ts",
+      version: requireMatch(cliBin, /version:\s*"([^"]+)"/, "npm CLI"),
     },
   ];
 }

@@ -45,6 +45,12 @@ jobs:
         env:
           ONCLAW_TDX_THS_ELECTRON_VERSION: ${{ env.ELECTRON_VERSION }}
         run: npm run build:native
+      - name: Smoke test native module in Node.js
+        shell: pwsh
+        run: node -e "const binding=require('./dist/native/win-x64/tdx-ths-linker.node'); for (const name of ['initRuntime','getRuntimeState','setRuntimeCode']) if (typeof binding[name] !== 'function') throw new Error('missing '+name)"
+      - name: Smoke test native module in Electron
+        shell: pwsh
+        run: npx --yes electron@$env:ELECTRON_VERSION scripts/smoke-native-electron.cjs dist/native/win-x64/tdx-ths-linker.node
       - name: Package .node module
         shell: pwsh
         run: |
@@ -60,10 +66,15 @@ jobs:
           name: node-release
           path: dist/tdx-ths-linker-node-*.zip
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-binary
+          path: packages/client/native/win-x64/tdx-ths-linker.node
+          if-no-files-found: error
 
   build-npm:
     name: Build npm package
-    needs: validate-release
+    needs: [validate-release, build-node]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,12 +84,19 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-binary
+          path: packages/client/native/win-x64
       - name: Build and test client
-        run: npm run test:client
+        run: |
+          npm run test:client
+          npm run test:examples
       - name: Pack exact npm artifact
         run: |
           mkdir -p dist/npm
           npm pack --workspace tdx-ths-linker --pack-destination dist/npm
+          npm run test:package
       - uses: actions/upload-artifact@v4
         with:
           name: npm-dist
@@ -116,7 +134,7 @@ jobs:
           if-no-files-found: error
 
   build-agent:
-    name: Build portable Agent and installer
+    name: Build Web Agent installer
     needs: validate-release
     runs-on: windows-latest
     steps:
@@ -139,23 +157,16 @@ jobs:
         run: >-
           ./scripts/validate-agent-installer.ps1
           ./release/agent/onclaw-tdx-ths-setup-win-x64.exe
-      - name: Package portable Agent
+      - name: Stage installer release assets
         shell: pwsh
         run: |
-          $stage = "dist/agent-portable"
-          $archive = "dist/onclaw-tdx-ths-agent-portable-win-x64.zip"
           $assets = "dist/agent-release-assets"
-          New-Item -ItemType Directory -Force $stage | Out-Null
           New-Item -ItemType Directory -Force $assets | Out-Null
-          Copy-Item "release/agent/onclaw-tdx-ths-agent.exe" $stage
-          Copy-Item "release/agent/SHA256SUMS.txt" $stage
-          Compress-Archive -Path "$stage/*" -DestinationPath $archive
-          Copy-Item $archive $assets
           Copy-Item "release/agent/onclaw-tdx-ths-setup-win-x64.exe" $assets
           Copy-Item "release/agent/SHA256SUMS.txt" $assets
       - uses: actions/upload-artifact@v4
         with:
-          name: agent-release
+          name: agent-installer-release
           path: dist/agent-release-assets/*
           if-no-files-found: error
 
@@ -213,7 +224,7 @@ jobs:
         run: npm publish dist/npm/*.tgz --access public --tag latest
 
   publish-github:
-    name: Publish .node, Agent, installer, and Skill packages
+    name: Publish .node, installer, and Skill packages
     needs: [build-node, build-agent, build-skill, publish-pypi, publish-npm]
     runs-on: ubuntu-latest
     permissions:
@@ -225,7 +236,7 @@ jobs:
           path: release-assets
       - uses: actions/download-artifact@v4
         with:
-          name: agent-release
+          name: agent-installer-release
           path: release-assets
       - uses: actions/download-artifact@v4
         with:

@@ -15,37 +15,55 @@ npm install tdx-ths-linker
 ## Web Agent transport
 
 ```ts
-import { createAgentClient } from "tdx-ths-linker";
+import { createStockLinkRuntime, createWebLinker } from "tdx-ths-linker";
 
-const client = createAgentClient();
-const prepared = client.prepareConnection!();
+const web = createWebLinker();
 
-client.openAgent!(prepared);
-const connection = await client.connect!(prepared);
-if (!connection.ok) throw new Error(connection.message);
+button.addEventListener("click", () => {
+  // Protocol activation occurs synchronously before the returned Promise waits.
+  web.connect({ licenseAccepted: licenseCheckbox.checked }).then((connection) => {
+    if (connection.status === "installer_required") {
+      installerLink.href = connection.installerUrl;
+      installerLink.hidden = false;
+      return;
+    }
+    if (!connection.ok) throw new Error(connection.message);
 
-await client.initialize(true);
-await client.setCode("tdx", "600825");
-await client.setCode("ths", "600825");
+    createStockLinkRuntime({
+      client: web.client,
+      mode: "ths-to-tdx",
+      onState: console.log,
+    }).start();
+  });
+});
 ```
 
-The Web transport requires `onclaw-tdx-ths-setup-win-x64.exe` from the matching GitHub Release. The installer places the Agent at a stable per-user path and registers `onclaw-tdx-ths://`; extracting the portable Agent ZIP does not register browser activation. The transport connects only to `127.0.0.1:17654`.
+Call `connect()` from a real user gesture on Windows HTTPS or localhost. It checks the environment, opens `onclaw-tdx-ths://`, retries the authenticated loopback pairing, initializes after explicit GPL acceptance, and returns structured recovery states. `installer_required` includes the official installer URL; pass `installerUrl` to `createWebLinker()` to use a pinned release or mirror.
+
+The automatic runtime supports `off`, `read-only`, `ths-to-tdx`, and `tdx-to-ths`. The first observation after startup, direction change, or source recovery establishes a baseline and never overwrites the other application. The transport connects only to `127.0.0.1:17654`.
+
+The low-level `createAgentClient()` API remains available for hosts that need to own the activation and retry policy. See the repository's `examples/web-quickstart` for a no-login standalone HTML example. Production applications should install this package and use a bundler; the pinned CDN import is a quickstart convenience.
 
 ## Node / Electron transport
 
 ```ts
-import { createNodeClient } from "tdx-ths-linker";
+import { createNativeClient } from "tdx-ths-linker/native";
 
-const native = require("./native/win-x64/tdx-ths-linker.node");
-const client = createNodeClient(native);
+const client = createNativeClient();
 
 await client.initialize(true);
 const state = await client.getState();
 ```
 
-The native `.node` binary is released separately because it must match the target Electron runtime and Windows architecture.
+The Windows x64 package contains `native/win-x64/tdx-ths-linker.node`. Set `TDX_THS_LINKER_NODE_PATH` only when testing a local build. The package is smoke-tested in Node.js and the declared Electron runtime before publication.
 
-For Codex or process-based automation, prefer the PyPI-installed `tdx-ths-linker` CLI and the separately released Codex Skill. Use this npm transport when embedding the integration into a Web or Node/Electron host.
+For Codex, Harness, or process-based automation, use the npm JSON CLI and separately released Skill:
+
+```powershell
+npx --no-install tdx-ths-linker --json --accept-license state
+npx --no-install tdx-ths-linker --json --accept-license set 600825 --target tdx --wait
+npx --no-install tdx-ths-linker --json --accept-license set 600825 --target ths --wait
+```
 
 ## Documentation
 

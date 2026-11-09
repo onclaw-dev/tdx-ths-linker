@@ -43,6 +43,10 @@ if (result.status !== 0) throw new Error(`cmake-js failed with ${result.status}`
 
 const source = join(root, "build", buildType, "tdx-ths-linker.node");
 const target = join(root, "dist", "native", `win-${arch}`, "tdx-ths-linker.node");
+const packageTarget = join(root, "packages", "client", "native", `win-${arch}`, "tdx-ths-linker.node");
 await mkdir(dirname(target), { recursive: true });
+await mkdir(dirname(packageTarget), { recursive: true });
 await copyFile(source, target);
+await copyFile(source, packageTarget);
 console.log(`Native addon copied to ${target}`);
+console.log(`Native addon staged for npm at ${packageTarget}`);

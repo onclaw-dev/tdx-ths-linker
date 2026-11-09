@@ -10,18 +10,29 @@ test("release workflow is triggered only by v-prefixed tag pushes", () => {
 });
 
 test("all release builds depend on version validation", () => {
-  for (const job of ["build-node", "build-npm", "build-python", "build-agent", "build-skill"]) {
+  for (const job of ["build-node", "build-python", "build-agent", "build-skill"]) {
     assert.match(workflow, new RegExp(`\\n  ${job}:[\\s\\S]*?\\n    needs: validate-release`));
   }
+  assert.match(workflow, /build-npm:[\s\S]*?needs: \[validate-release, build-node\]/);
   assert.match(workflow, /node scripts\/validate-release-version\.mjs "\$GITHUB_REF_NAME"/);
 });
 
-test("Agent release contains portable and installed distributions", () => {
+test("Web Agent release contains only installer distribution assets", () => {
   assert.match(workflow, /validate-agent-installer\.ps1/);
-  assert.match(workflow, /onclaw-tdx-ths-agent-portable-win-x64\.zip/);
+  assert.doesNotMatch(workflow, /onclaw-tdx-ths-agent-portable-win-x64\.zip/);
+  assert.doesNotMatch(workflow, /Compress-Archive[\s\S]*agent-portable/);
   assert.match(workflow, /onclaw-tdx-ths-setup-win-x64\.exe/);
   assert.match(workflow, /release\/agent\/SHA256SUMS\.txt/);
+  assert.match(workflow, /name: agent-installer-release/);
   assert.match(workflow, /path: dist\/agent-release-assets\/\*/);
+});
+
+test("npm release validates all integration examples", () => {
+  assert.match(workflow, /npm run test:examples/);
+  assert.match(workflow, /name: node-binary/);
+  assert.match(workflow, /path: packages\/client\/native\/win-x64/);
+  assert.match(workflow, /npm run test:package/);
+  assert.match(workflow, /smoke-native-electron\.cjs/);
 });
 
 test("registry releases precede GitHub Release publication", () => {

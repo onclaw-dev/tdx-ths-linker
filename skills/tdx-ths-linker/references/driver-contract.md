@@ -3,12 +3,12 @@
 ## Commands
 
 ```text
-tdx-ths-linker [--json] [--accept-license] doctor
-tdx-ths-linker [--json] [--accept-license] state
-tdx-ths-linker [--json] [--accept-license] set CODE --target tdx|ths|both [--wait] [--timeout SECONDS] [--poll-interval SECONDS]
+npx --no-install tdx-ths-linker [--json] [--accept-license] doctor
+npx --no-install tdx-ths-linker [--json] [--accept-license] state
+npx --no-install tdx-ths-linker [--json] [--accept-license] set CODE --target tdx|ths|both [--wait] [--timeout SECONDS] [--poll-interval SECONDS]
 ```
 
-`CODE` is exactly six ASCII digits. Native commands require `--accept-license` or environment variable `TDX_THS_LINKER_LICENSE_ACCEPTED=1`.
+Install the npm package in the current project before invoking it. `CODE` is exactly six ASCII digits. Native commands require `--accept-license` or environment variable `TDX_THS_LINKER_LICENSE_ACCEPTED=1`.
 
 ## JSON envelope
 

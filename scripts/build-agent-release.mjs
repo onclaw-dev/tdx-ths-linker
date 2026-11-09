@@ -83,7 +83,7 @@ run(makensis, [
 if (!unsigned) sign(installerPath);
 
 const inventory = [];
-for (const name of [executable, installer]) {
+for (const name of [installer]) {
   const bytes = await readFile(join(releaseDir, name));
   inventory.push(`${createHash("sha256").update(bytes).digest("hex")}  ${name}`);
 }

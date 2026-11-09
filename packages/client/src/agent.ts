@@ -14,6 +14,10 @@ export interface AgentClientOptions {
   openUrl?: (url: string) => void;
 }
 
+type LoopbackRequestInit = RequestInit & {
+  targetAddressSpace: "loopback";
+};
+
 function nonce(): string {
   const bytes = new Uint8Array(32);
   globalThis.crypto.getRandomValues(bytes);
@@ -36,7 +40,12 @@ export function createAgentClient(options: AgentClientOptions = {}): OnclawClien
     const headers = new Headers(init.headers);
     headers.set("Content-Type", "application/json");
     if (token) headers.set("Authorization", `Bearer ${token}`);
-    const response = await request(`${baseUrl}${path}`, { ...init, headers });
+    const requestInit: LoopbackRequestInit = {
+      ...init,
+      headers,
+      targetAddressSpace: "loopback",
+    };
+    const response = await request(`${baseUrl}${path}`, requestInit);
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(String(body.error ?? `agent_http_${response.status}`));
     return body as T;

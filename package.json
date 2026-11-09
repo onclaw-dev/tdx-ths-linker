@@ -1,6 +1,6 @@
 {
   "name": "onclaw-tdx-ths",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "GPL-licensed Onclaw TDX/THS integration",
   "type": "module",
@@ -8,6 +8,10 @@
   "scripts": {
     "build:client": "npm --workspace tdx-ths-linker run build",
     "test:client": "npm --workspace tdx-ths-linker run test",
+    "test:web-quickstart": "node --test scripts/validate-web-quickstart.test.mjs",
+    "test:examples": "node --test scripts/validate-web-quickstart.test.mjs scripts/validate-runtime-examples.test.mjs",
+    "test:package": "node scripts/validate-npm-package.mjs",
+    "test:live:native": "node scripts/live-validate-native.mjs",
     "build:native": "node scripts/build-native.mjs",
     "release:agent": "node scripts/build-agent-release.mjs"
   },

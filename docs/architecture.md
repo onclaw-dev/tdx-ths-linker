@@ -38,6 +38,7 @@ C / C++ ────────── C ABI ───────────�
 | `skills/tdx-ths-linker` | Codex Skill、驱动合约和代理操作边界 |
 | `setup` | NSIS 安装器 |
 | `scripts` | 本机构建、发布和 wheel 校验脚本 |
+| `examples` | Web、Python、Electron 与 DeepSeek Harness 最小接入示例 |
 
 ## 发布产物
 
@@ -46,8 +47,7 @@ C / C++ ────────── C ABI ───────────�
 | npm | JavaScript transport、类型声明和 npm README |
 | PyPI | Python 包、类型标记和 `onclaw-tdx-ths.dll` |
 | GitHub Release `.node` 包 | Electron 目标版本对应的 `tdx-ths-linker.node` 与 SHA-256 |
-| GitHub Release Agent 便携包 | `onclaw-tdx-ths-agent-portable-win-x64.zip`，用于手动启动，不自动注册协议 |
-| GitHub Release Agent 安装包 | `onclaw-tdx-ths-setup-win-x64.exe`，固定安装并注册 Web 唤起协议 |
+| GitHub Release Web 安装包 | `onclaw-tdx-ths-setup-win-x64.exe` 与 SHA-256，固定安装并注册 Web 唤起协议 |
 | GitHub Release Skill 包 | Codex Skill 指令、UI 元数据和 CLI 合约 |
 
 只有新的 `v*` 标签 push 会触发统一发布工作流。工作流先验证标签与 npm、PyPI、CMake、Agent 版本完全一致，再构建全部产物；普通 pull request 和 `main` push 不运行该发布 workflow。
@@ -65,5 +65,5 @@ C / C++ ────────── C ABI ───────────�
 - Python wheel 使用稳定 C ABI，不绑定具体 CPython 扩展 ABI。
 - `.node` 使用 Node-API，但仍按目标 Electron 版本构建，以包含正确的 Windows/Electron 装载配置。
 - Web Agent 是唯一需要安装与自定义协议注册的渠道。
-- Web 场景使用安装包；便携 Agent 仅用于显式手动启动或调试。
+- Web 场景只发布安装包；原始 Agent EXE 仅作为安装器输入和本地开发输出。
 - Codex Skill 不携带 native 二进制，只调用 PyPI 包安装的 CLI 驱动。

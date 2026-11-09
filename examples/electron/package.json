@@ -1,0 +1,16 @@
+{
+  "name": "tdx-ths-linker-electron-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "tdx-ths-linker": "0.1.2"
+  },
+  "devDependencies": {
+    "electron": "39.2.0"
+  }
+}

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Electron TDX / THS 联动</title>
+  <style>
+    body { max-width: 640px; margin: 2rem auto; font: 16px/1.5 system-ui; }
+    section { margin: 1rem 0; padding: 1rem; border: 1px solid #bbb; border-radius: 10px; }
+    input, select, button { margin: .25rem; padding: .5rem; font: inherit; }
+    pre { min-height: 10rem; white-space: pre-wrap; background: #eee; padding: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Electron TDX / THS 联动</h1>
+  <section>
+    <label><input id="license" type="checkbox"> 我已接受 GPL-3.0-only 许可</label>
+    <button id="initialize">初始化</button>
+    <button id="read" disabled>读取状态</button>
+  </section>
+  <section>
+    <input id="code" maxlength="6" value="600825" inputmode="numeric">
+    <button id="set-tdx" disabled>设置 TDX</button>
+    <button id="set-ths" disabled>设置 THS</button>
+  </section>
+  <section>
+    <select id="mode">
+      <option value="off">关闭</option>
+      <option value="read-only">只读</option>
+      <option value="ths-to-tdx">THS → TDX</option>
+      <option value="tdx-to-ths">TDX → THS</option>
+    </select>
+    <button id="start" disabled>启动联动</button>
+    <button id="stop" disabled>停止联动</button>
+  </section>
+  <pre id="output">等待初始化…</pre>
+  <script>
+    const output = document.getElementById("output");
+    const controls = ["read", "set-tdx", "set-ths", "start", "stop"];
+    const show = (value) => { output.textContent = JSON.stringify(value, null, 2); };
+    document.getElementById("initialize").addEventListener("click", async () => {
+      const result = await window.tdxThsLinker.initialize(document.getElementById("license").checked);
+      show(result);
+      for (const id of controls) document.getElementById(id).disabled = !result.ok;
+    });
+    document.getElementById("read").addEventListener("click", async () => show(await window.tdxThsLinker.getState()));
+    for (const target of ["tdx", "ths"]) {
+      document.getElementById(`set-${target}`).addEventListener("click", async () => {
+        show(await window.tdxThsLinker.setCode(target, document.getElementById("code").value.trim()));
+      });
+    }
+    document.getElementById("mode").addEventListener("change", (event) => window.tdxThsLinker.setMode(event.target.value));
+    document.getElementById("start").addEventListener("click", () => window.tdxThsLinker.start());
+    document.getElementById("stop").addEventListener("click", () => window.tdxThsLinker.stop());
+    window.tdxThsLinker.onState(show);
+    window.tdxThsLinker.onCommand(show);
+    window.tdxThsLinker.onError((error) => { output.textContent = error; });
+  </script>
+</body>
+</html>

@@ -5,12 +5,12 @@ description: Inspect TDX/THS desktop state and explicitly link one or both appli
 
 # TDX THS Linker
 
-Use the installed `tdx-ths-linker` CLI as the only operational boundary. Do not load the DLL directly or reconstruct process-memory behavior.
+Use the locally installed npm `tdx-ths-linker` CLI as the only operational boundary. Do not load `.node` directly or reconstruct process-memory behavior.
 
 ## Prerequisites
 
-- Confirm the command exists with `tdx-ths-linker --version`.
-- If it is missing, report that the user can install it with `py -m pip install tdx-ths-linker`; do not install it without authorization.
+- Confirm the command exists with `npx --no-install tdx-ths-linker --version`.
+- If it is missing, report that the user can install it in the current project with `npm install tdx-ths-linker`; do not install it without authorization.
 - Native commands require prior GPL acceptance through `--accept-license` or `TDX_THS_LINKER_LICENSE_ACCEPTED=1`. Do not invent acceptance. If neither is already configured, ask the user to review and accept the repository license before proceeding.
 
 ## Workflow
@@ -18,14 +18,15 @@ Use the installed `tdx-ths-linker` CLI as the only operational boundary. Do not 
 For diagnostics or a read-only request, run:
 
 ```powershell
-tdx-ths-linker --json --accept-license doctor
-tdx-ths-linker --json --accept-license state
+npx --no-install tdx-ths-linker --json --accept-license doctor
+npx --no-install tdx-ths-linker --json --accept-license state
 ```
 
 For a write, require a user-provided six-digit code and an explicit target. Treat “联动”, “双端”, or “both” as both endpoints only when the user clearly requests it.
 
 ```powershell
-tdx-ths-linker --json --accept-license set 600825 --target both --wait
+npx --no-install tdx-ths-linker --json --accept-license set 600825 --target tdx --wait
+npx --no-install tdx-ths-linker --json --accept-license set 600825 --target ths --wait
 ```
 
 Use `--wait` for user-facing writes. Report success only when `ok` and `data.confirmed` are both true. If one endpoint is unavailable, rejected, or timed out, name that endpoint and report incomplete linkage.
