@@ -1,0 +1,21 @@
+{
+  "profileVersion": 1,
+  "pollMs": 350,
+  "scanRetryMs": 4000,
+  "scanTimeoutMs": 2500,
+  "commandTimeoutMs": 1500,
+  "targets": {
+    "ths": {
+      "processes": ["hexin.exe"],
+      "module": "hexin.exe",
+      "pattern": "FF 35 ?? ?? ?? ?? 56 FF 15 ?? ?? ?? ?? 83 C4 08 85 C0 75 1F",
+      "fallbacks": ["0x01B145F0", "0x01AA2680", "0x018F83C4", "0x0150E228", "0x017160E8"]
+    },
+    "tdx": {
+      "processes": ["tdxw.exe", "tdx.exe"],
+      "module": "Viewthem.dll",
+      "pattern": "B8 ?? ?? ?? ?? 8A 10 3A 11 75 1A 84 D2 74 12 8A 50 01 3A 51 01 75 0E 83 C0 02 83 C1 02 84 D2 75 E4 33 C0 EB 05 1B C0 83 D8 FF 85 C0 75 44",
+      "fallbacks": ["0x00038260", "0x000365E0", "0x00036560", "0x000366D0"]
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "tdx-ths-linker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Source-available noncommercial TDX/THS desktop linker",
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build:client": "npm --workspace @tdx-ths-linker/client run build",
+    "test:client": "npm --workspace @tdx-ths-linker/client run test",
+    "build:native": "node scripts/build-native.mjs",
+    "release:agent": "node scripts/build-agent-release.mjs"
+  },
+  "devDependencies": {
+    "cmake-js": "8.0.0",
+    "node-addon-api": "^8.3.1"
+  },
+  "license": "PolyForm-Noncommercial-1.0.0"
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@tdx-ths-linker/client",
+  "version": "0.1.0",
+  "description": "Web-agent and Node-API transports for tdx-ths-linker",
+  "type": "module",
+  "sideEffects": false,
+  "files": ["dist", "README.md"],
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "tsdown": "0.22.2",
+    "typescript": "~5.6.3"
+  },
+  "license": "PolyForm-Noncommercial-1.0.0"
+}

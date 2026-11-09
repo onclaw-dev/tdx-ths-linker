@@ -1,0 +1,11 @@
+build/
+dist/
+release/
+node_modules/
+*.log
+*.pdb
+*.node
+*.exe
+*.msi
+*.zip
+.DS_Store
