@@ -97,17 +97,28 @@ ONCLAW_TDX_THS_SIGN_CERTIFICATE
 ONCLAW_TDX_THS_SIGN_PASSWORD
 ```
 
-发布脚本生成 Agent、NSIS 安装器和 `SHA256SUMS.txt`。Agent 与安装器都使用根目录 `icon.ico`。
+发布脚本执行干净的 Agent-only 构建并生成：
+
+```text
+release/agent/onclaw-tdx-ths-agent.exe
+release/agent/onclaw-tdx-ths-setup-win-x64.exe
+release/agent/SHA256SUMS.txt
+```
+
+Agent 与安装器都使用根目录 `icon.ico`。GitHub Release 另外生成 `onclaw-tdx-ths-agent-portable-win-x64.zip`；该便携包不注册协议。安装器将 Agent 固定安装到 `%LOCALAPPDATA%\OnclawTdxThs`，注册 `onclaw-tdx-ths://`，卸载时清理其持有的注册。
 
 ## GitHub Actions
 
-[`.github/workflows/python-publish.yml`](../.github/workflows/python-publish.yml) 构建五类产物：
+[`.github/workflows/python-publish.yml`](../.github/workflows/python-publish.yml) 只在新的 `v*` tag push 时运行，并构建六类产物：
 
 1. Electron `.node` 包。
 2. PyPI Windows wheel。
 3. npm tarball。
-4. Agent EXE 包。
-5. Codex Skill ZIP。
+4. Agent 便携 ZIP。
+5. Agent NSIS 安装包。
+6. Codex Skill ZIP。
+
+发布前置门禁要求 tag 去掉 `v` 后与根 npm 包、客户端 npm 包、lockfile、PyPI、CMake 和 Agent 版本全部一致。npm tarball 使用 `latest` dist-tag 发布；PyPI 上传相同版本的 wheel，最高的非撤回版本即项目当前版本。只有 npm 与 PyPI 均发布成功后，GitHub Release 才附加 native、Agent、安装器与 Skill 产物。
 
 标签发布前需配置：
 
@@ -115,6 +126,15 @@ ONCLAW_TDX_THS_SIGN_PASSWORD
 - npm Trusted Publisher，workflow 文件名为 `python-publish.yml`。
 - PyPI Trusted Publisher，environment 为 `pypi`。
 - 可选仓库变量 `ONCLAW_TDX_THS_ELECTRON_VERSION`。
+
+发布方式：
+
+```powershell
+git tag -a vX.Y.Z -m "tdx-ths-linker vX.Y.Z"
+git push origin vX.Y.Z
+```
+
+不要移动已经推送的 tag，也不要用普通 `main` push 触发发布。
 
 ## 发布前检查
 

@@ -16,7 +16,7 @@
 
 | 渠道 | 产物 | 接入方式 | 是否需要 Agent |
 | --- | --- | --- | --- |
-| Web | `tdx-ths-linker` npm 包 + Agent EXE | 自定义协议激活与 loopback HTTP | 是 |
+| Web | `tdx-ths-linker` npm 包 + Agent 安装包 | 自定义协议激活与 loopback HTTP | 是 |
 | Node/Electron | `tdx-ths-linker.node` | Node-API | 否 |
 | Python | `tdx-ths-linker` wheel | `ctypes` 加载内置 DLL | 否 |
 | Codex / 自动化 | `tdx-ths-linker` Skill + CLI | JSON 命令驱动 | 否 |
@@ -42,6 +42,14 @@ C/C++ ── C ABI ── onclaw-tdx-ths.dll ───────────�
 
 ### Web
 
+先从对应版本的 GitHub Release 下载并安装：
+
+```text
+onclaw-tdx-ths-setup-win-x64.exe
+```
+
+安装器把 Agent 固定安装到 `%LOCALAPPDATA%\OnclawTdxThs`，并注册 `onclaw-tdx-ths://`。浏览器唤起依赖该注册，因此仅下载便携 ZIP 或手动运行 EXE 不等同于完成 Web 安装。便携包 `onclaw-tdx-ths-agent-portable-win-x64.zip` 适合显式手动启动、本地调试或不需要浏览器唤起的场景。
+
 ```bash
 npm install tdx-ths-linker
 ```
@@ -63,7 +71,7 @@ await linker.setCode("tdx", "600825");
 await linker.setCode("ths", "600825");
 ```
 
-Web 客户端只连接 `127.0.0.1:17654`。配对、Origin 校验和会话规则参见 [本地 Agent 协议](https://github.com/onclaw-dev/tdx-ths-linker/blob/main/docs/protocol.md)。
+Web 客户端只连接 `127.0.0.1:17654`。协议注册可通过已安装的 Agent 执行 `--verify-registration` 检查、用 `--repair` 修复；卸载器只移除自己持有的注册。配对、Origin 校验和会话规则参见 [本地 Agent 协议](https://github.com/onclaw-dev/tdx-ths-linker/blob/main/docs/protocol.md)。
 
 ### Node / Electron
 

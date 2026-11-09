@@ -29,7 +29,7 @@ await client.setCode("tdx", "600825");
 await client.setCode("ths", "600825");
 ```
 
-The Web transport requires the separately installed Windows Agent and connects only to `127.0.0.1:17654`.
+The Web transport requires `onclaw-tdx-ths-setup-win-x64.exe` from the matching GitHub Release. The installer places the Agent at a stable per-user path and registers `onclaw-tdx-ths://`; extracting the portable Agent ZIP does not register browser activation. The transport connects only to `127.0.0.1:17654`.
 
 ## Node / Electron transport
 
