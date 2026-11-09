@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/icon.png" width="128" height="128" alt="tdx-ths-linker icon">
+  <img src="imgs/icon.png" width="128" height="128" alt="tdx-ths-linker icon">
 </p>
 
 <h1 align="center">tdx-ths-linker</h1>
@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/onclaw-dev/tdx-ths-linker/blob/main/examples/web-quickstart/README.md">查看 Web 网页端快速接入与效果预览</a>
+  <a href="examples/web-quickstart/README.md">查看 Web 网页端快速接入与效果预览</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/onclaw-dev/tdx-ths-linker/blob/main/examples/web-quickstart/README.md">
-    <img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview6.png" width="920" alt="tdx-ths-linker Web 网页端效果预览">
+  <a href="examples/web-quickstart/README.md">
+    <img src="imgs/preview6.png" width="920" alt="tdx-ths-linker Web 网页端效果预览">
   </a>
 </p>
 
