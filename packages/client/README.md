@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/icon.png" width="96" height="96" alt="tdx-ths-linker icon">
+  <img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/icon.png" width="96" height="96" alt="tdx-ths-linker icon">
 </p>
 
 # tdx-ths-linker

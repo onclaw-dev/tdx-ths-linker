@@ -105,7 +105,7 @@ release/agent/onclaw-tdx-ths-setup-win-x64.exe
 release/agent/SHA256SUMS.txt
 ```
 
-Agent 与安装器都使用根目录 `icon.ico`。原始 Agent EXE 保留为安装器输入和本地开发输出，不作为独立最终产品上传。GitHub Release 只上传安装器及其 `SHA256SUMS.txt`。安装器将 Agent 固定安装到 `%LOCALAPPDATA%\OnclawTdxThs`，注册 `onclaw-tdx-ths://`，卸载时清理其持有的注册。
+Agent 与安装器都使用 `imgs/icon.ico`。原始 Agent EXE 保留为安装器输入和本地开发输出，不作为独立最终产品上传。GitHub Release 只上传安装器及其 `SHA256SUMS.txt`。安装器将 Agent 固定安装到 `%LOCALAPPDATA%\OnclawTdxThs`，注册 `onclaw-tdx-ths://`，卸载时清理其持有的注册。
 
 ## GitHub Actions
 

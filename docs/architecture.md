@@ -54,8 +54,8 @@ C / C++ ────────── C ABI ───────────�
 
 ## 图标资源
 
-- 根目录 `icon.png`：GitHub、PyPI 和 npm 文档展示。
-- 根目录 `icon.ico`：嵌入 Agent EXE，并作为 NSIS 安装器与卸载器图标。
+- `imgs/icon.png`：GitHub、PyPI 和 npm 文档展示。
+- `imgs/icon.ico`：嵌入 Agent EXE，并作为 NSIS 安装器与卸载器图标。
 
 图标文件是单一来源。文档和构建脚本应引用根目录资源，不应在子目录维护副本。
 

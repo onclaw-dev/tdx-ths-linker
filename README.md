@@ -1,16 +1,27 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/icon.png" width="128" height="128" alt="tdx-ths-linker icon">
+  <img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/icon.png" width="128" height="128" alt="tdx-ths-linker icon">
 </p>
 
 <h1 align="center">tdx-ths-linker</h1>
 
 <p align="center">
-  Windows 多端通达信（TDX）与同花顺（THS）联动组件
+  支持 Web 网页、桌面应用、Skill、Harness 的通达信、同花顺代码联动模块
 </p>
 
-`tdx-ths-linker` 通过一套共享 C++ runtime，为 Web、Node/Electron、Python 和 Windows 原生程序提供统一的股票代码读取与设置能力。当前仅支持 Windows x64。
+<p align="center">
+  <a href="https://github.com/onclaw-dev/tdx-ths-linker/blob/main/examples/web-quickstart/README.md">查看 Web 网页端快速接入与效果预览</a>
+</p>
 
-> 本项目是独立社区项目，与通达信、同花顺及其运营主体不存在隶属、授权、合作或背书关系。相关名称仅用于描述兼容目标，商标归各自权利人所有。
+<p align="center">
+  <a href="https://github.com/onclaw-dev/tdx-ths-linker/blob/main/examples/web-quickstart/README.md">
+    <img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview6.png" width="920" alt="tdx-ths-linker Web 网页端效果预览">
+  </a>
+</p>
+
+> 为什么要有这个项目：因为我在使用deepseek harness做搜索时，遇见使用工作流返回的代码组，想一一在同花顺中快速翻阅，手打的话，非常慢。因为人的记忆有限，所以就有了通过deepseek flash模型查询目标类型的代码，然后鼠标点点就可以快速完成预览的需求。因为主观看K线，还是主流的交易软件最直观。
+> 所以就用c++实现了联动“同花顺”“通达信”联动。但又很想在不同端复用，于是就做了全场景适配，`tdx-ths-linker` 通过一套共享 C++ runtime，为 **Web、Node/Electron、Python 和 Windows 原生程序**提供统一的股票代码读取与设置能力。
+> 当前仅支持 Windows x64。
+
 
 ## 支持的接入方式
 

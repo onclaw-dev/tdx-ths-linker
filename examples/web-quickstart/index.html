@@ -3,118 +3,290 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
   <title>TDX / THS Web 联动快速接入</title>
   <style>
-    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-    body { max-width: 760px; margin: 3rem auto; padding: 0 1rem; line-height: 1.55; }
-    section { border: 1px solid #8886; border-radius: 12px; padding: 1rem; margin: 1rem 0; }
-    button, input, select { font: inherit; padding: .5rem .7rem; margin: .25rem; }
-    button { cursor: pointer; }
-    code, pre { background: #8882; border-radius: 6px; padding: .2rem .4rem; }
-    pre { min-height: 5rem; white-space: pre-wrap; }
-    .error { color: #d33; }
+    :root {
+      color-scheme: light;
+      font-family: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #172033;
+      background: #f4f7fb;
+      --ink: #172033;
+      --muted: #667085;
+      --line: #dfe5ef;
+      --panel: rgba(255, 255, 255, .94);
+      --primary: #2558e5;
+      --primary-dark: #1945c4;
+      --success: #138a5b;
+      --danger: #d13c4b;
+      --shadow: 0 18px 55px rgba(37, 64, 120, .11);
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background:
+        radial-gradient(circle at 8% 0%, rgba(78, 118, 255, .16), transparent 30rem),
+        radial-gradient(circle at 100% 20%, rgba(39, 190, 142, .10), transparent 26rem),
+        #f4f7fb;
+      line-height: 1.6;
+    }
+    button, input, select { font: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    .app-shell { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 44px 0 32px; }
+    .hero { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 24px; margin-bottom: 24px; padding: 10px 4px; }
+    .brand { display: flex; align-items: center; gap: 16px; }
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 54px;
+      height: 54px;
+      flex: 0 0 auto;
+      border-radius: 16px;
+      color: white;
+      background: linear-gradient(145deg, #2558e5, #5538c9);
+      box-shadow: 0 12px 25px rgba(37, 88, 229, .28);
+      font-size: 25px;
+      font-weight: 800;
+    }
+    h1 { margin: 0; font-size: clamp(27px, 4vw, 38px); line-height: 1.2; letter-spacing: -.04em; }
+    .hero p { margin: 7px 0 0; color: var(--muted); }
+    .hero-badge { border: 1px solid #cdd8ff; border-radius: 999px; padding: 7px 12px; color: #3153b7; background: #eef2ff; font-size: 13px; font-weight: 700; white-space: nowrap; }
+    main { display: grid; gap: 20px; }
+    .card { overflow: hidden; border: 1px solid rgba(210, 220, 235, .9); border-radius: 22px; background: var(--panel); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
+    .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 24px 26px 0; }
+    .eyebrow { margin: 0 0 4px; color: var(--primary); font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    h2 { margin: 0; font-size: 21px; letter-spacing: -.02em; }
+    .card-description { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+    .card-body { padding: 22px 26px 26px; }
+    .steps { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .step { min-height: 170px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: #fbfcff; }
+    .step-number { display: grid; place-items: center; width: 30px; height: 30px; margin-bottom: 14px; border-radius: 10px; color: white; background: var(--primary); font-size: 14px; font-weight: 800; }
+    .step h3 { margin: 0; font-size: 16px; }
+    .step p { margin: 5px 0 16px; color: var(--muted); font-size: 13px; }
+    .button-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+      border: 1px solid transparent;
+      border-radius: 11px;
+      padding: 9px 15px;
+      cursor: pointer;
+      font-weight: 700;
+      text-decoration: none;
+      transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+    }
+    .button:hover:not(:disabled) { transform: translateY(-1px); }
+    .button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid rgba(37, 88, 229, .23); outline-offset: 2px; }
+    .button-primary { color: white; background: var(--primary); box-shadow: 0 8px 18px rgba(37, 88, 229, .21); }
+    .button-primary:hover { background: var(--primary-dark); }
+    .button-secondary { border-color: #cfd8e8; color: var(--ink); background: white; }
+    .button-quiet { border-color: #dbe1ea; color: #465166; background: #f8fafc; }
+    .button:disabled { cursor: not-allowed; color: #98a2b3; background: #eef1f5; box-shadow: none; }
+    .star-link { display: inline-flex; align-items: center; margin-top: 11px; color: #3153b7; font-size: 13px; font-weight: 700; text-decoration: none; }
+    .star-link:hover { text-decoration: underline; }
+    .status { margin: 16px 0 0; padding: 12px 14px; border: 1px solid #dde3ed; border-radius: 12px; color: #596579; background: #f7f9fc; font-size: 13px; }
+    .status::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: #98a2b3; }
+    .status[data-tone="working"] { border-color: #cdd8ff; color: #3153b7; background: #f1f4ff; }
+    .status[data-tone="working"]::before { background: var(--primary); box-shadow: 0 0 0 4px rgba(37, 88, 229, .12); }
+    .status[data-tone="success"] { border-color: #bde5d3; color: #087548; background: #f0fbf6; }
+    .status[data-tone="success"]::before { background: var(--success); }
+    .status[data-tone="danger"] { border-color: #f0c5ca; color: #b42d3a; background: #fff4f5; }
+    .status[data-tone="danger"]::before { background: var(--danger); }
+    .control-grid { display: grid; grid-template-columns: minmax(210px, 1fr) 2fr; gap: 18px; align-items: end; }
+    .field label { display: block; margin-bottom: 7px; color: #49556a; font-size: 13px; font-weight: 700; }
+    input[type="text"] { width: 100%; height: 46px; border: 1px solid #ccd5e3; border-radius: 11px; padding: 0 14px; color: var(--ink); background: white; font-size: 17px; font-variant-numeric: tabular-nums; }
+    .endpoint-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 20px; }
+    .endpoint { padding: 17px 18px; border: 1px solid var(--line); border-radius: 15px; background: #fafbfe; }
+    .endpoint-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .endpoint-name { font-size: 13px; font-weight: 800; letter-spacing: .08em; }
+    .availability { color: var(--muted); font-size: 12px; }
+    .availability::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #a7b0bf; }
+    .endpoint[data-available="true"] .availability { color: var(--success); }
+    .endpoint[data-available="true"] .availability::before { background: var(--success); }
+    .endpoint-code { display: block; margin-top: 8px; font-size: 27px; line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+    details { margin-top: 14px; }
+    summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+    pre { min-height: 80px; overflow: auto; margin: 10px 0 0; border-radius: 12px; padding: 14px; color: #d9e4ff; background: #172033; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
+    .automation-row { display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: 16px; align-items: end; }
+    select { width: 100%; height: 44px; border: 1px solid #ccd5e3; border-radius: 11px; padding: 0 12px; color: var(--ink); background: white; }
+    .hint { margin: 14px 0 0; color: var(--muted); font-size: 13px; }
+    footer { padding: 22px 4px 0; color: #7a8597; text-align: center; font-size: 12px; }
+    @media (max-width: 760px) {
+      .app-shell { width: min(100% - 20px, 620px); padding-top: 22px; }
+      .hero { grid-template-columns: 1fr; gap: 12px; }
+      .hero-badge { justify-self: start; }
+      .steps, .control-grid, .endpoint-grid, .automation-row { grid-template-columns: 1fr; }
+      .card-head, .card-body { padding-left: 18px; padding-right: 18px; }
+      .card-head { padding-top: 20px; }
+      .button { width: 100%; }
+      .button-row { align-items: stretch; }
+      .step { min-height: auto; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
   </style>
 </head>
 <body>
-  <h1>TDX / THS Web 联动</h1>
-  <p>本示例不需要登录。请通过 HTTPS 或 <code>http://localhost</code> 访问，不要直接打开 <code>file://</code>。</p>
+  <div class="app-shell">
+    <!-- <header class="hero">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">↔</div>
+        <div>
+          <h1>TDX / THS Web 联动</h1>
+          <p>在浏览器中安全唤醒本机服务，读取并同步通达信与同花顺代码。</p>
+        </div>
+      </div>
+      <span class="hero-badge">Windows · Local Agent</span>
+    </header> -->
 
-  <section>
-    <label><input id="license" type="checkbox"> 我已阅读并接受 GPL-3.0-only 许可</label><br>
-    <button id="connect">唤醒并连接本机联动服务</button>
-    <a id="installer" hidden target="_blank" rel="noopener">下载 Windows 安装包</a>
-    <button id="retry" hidden>安装后重试</button>
-    <p id="connection">尚未连接</p>
-  </section>
+    <main>
+      <section class="card" aria-labelledby="onboarding-title">
+        <div class="card-head">
+          <div><p class="eyebrow">Quick start</p><h2 id="onboarding-title">两步完成本机连接</h2><p class="card-description">首次使用需要安装联动组件；已经安装可以直接唤醒。</p></div>
+        </div>
+        <div class="card-body">
+          <div class="steps">
+            <article class="step">
+              <span class="step-number">1</span>
+              <h3>安装联动组件</h3>
+              <p>下载并运行 Windows 安装包，完成自定义协议注册。</p>
+              <a id="installer" class="button button-primary" href="https://fin.onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe">下载 Windows 联动组件</a>
+            </article>
+            <article class="step">
+              <span class="step-number">2</span>
+              <h3>唤醒并连接</h3>
+              <div class="button-row">
+                <button id="connect" class="button button-secondary">已安装，唤醒并连接</button>
+                <button id="retry" class="button button-quiet" hidden>安装完成，重新连接</button>
+              </div>
+              <a class="star-link" href="https://github.com/onclaw-dev/tdx-ths-linker" target="_blank" rel="noopener noreferrer">开源不易，点击给个 Star★ 吧！</a>
+            </article>
+          </div>
+          <p id="connection" class="status" data-tone="neutral" role="status" aria-live="polite">等待连接本机服务</p>
+        </div>
+      </section>
 
-  <section>
-    <label>股票代码 <input id="code" inputmode="numeric" maxlength="6" value="600825"></label>
-    <button id="set-tdx" disabled>设置并确认 TDX</button>
-    <button id="set-ths" disabled>设置并确认 THS</button>
-    <button id="read" disabled>读取当前状态</button>
-  </section>
+      <section class="card" aria-labelledby="manual-title">
+        <div class="card-head"><div><p class="eyebrow">Manual control</p><h2 id="manual-title">读取与设置代码</h2><p class="card-description">连接成功后，可分别设置并确认两个客户端。</p></div></div>
+        <div class="card-body">
+          <div class="control-grid">
+            <div class="field"><label for="code">六位股票代码</label><input id="code" type="text" inputmode="numeric" autocomplete="off" maxlength="6" value="600825"></div>
+            <div class="button-row">
+              <button id="set-tdx" class="button button-secondary" disabled>设置并确认 TDX</button>
+              <button id="set-ths" class="button button-secondary" disabled>设置并确认 THS</button>
+              <button id="read" class="button button-quiet" disabled>读取当前状态</button>
+            </div>
+          </div>
+          <div class="endpoint-grid">
+            <article id="tdx-card" class="endpoint" data-available="false"><div class="endpoint-top"><span class="endpoint-name">TDX</span><span id="tdx-availability" class="availability">未连接</span></div><strong id="tdx-code" class="endpoint-code">—</strong></article>
+            <article id="ths-card" class="endpoint" data-available="false"><div class="endpoint-top"><span class="endpoint-name">THS</span><span id="ths-availability" class="availability">未连接</span></div><strong id="ths-code" class="endpoint-code">—</strong></article>
+          </div>
+          <details><summary>查看原始状态</summary><pre id="state">等待状态…</pre></details>
+        </div>
+      </section>
 
-  <section>
-    <label>自动联动方向
-      <select id="mode">
-        <option value="off">关闭</option>
-        <option value="read-only">只读观察</option>
-        <option value="ths-to-tdx">THS → TDX</option>
-        <option value="tdx-to-ths">TDX → THS</option>
-      </select>
-    </label>
-    <button id="start" disabled>启动轮询</button>
-    <button id="stop" disabled>停止轮询</button>
-    <pre id="state">等待状态…</pre>
-  </section>
+      <section class="card" aria-labelledby="automation-title">
+        <div class="card-head"><div><p class="eyebrow">Automation</p><h2 id="automation-title">自动联动</h2><p class="card-description">选择单向同步来源，首次读取只建立基线，不会覆盖目标端。</p></div></div>
+        <div class="card-body">
+          <div class="automation-row">
+            <div class="field"><label for="mode">联动方向</label><select id="mode"><option value="off">关闭</option><option value="read-only">只读观察</option><option value="ths-to-tdx">THS → TDX</option><option value="tdx-to-ths">TDX → THS</option></select></div>
+            <div class="button-row"><button id="start" class="button button-secondary" disabled>启动轮询</button><button id="stop" class="button button-quiet" disabled>停止轮询</button></div>
+          </div>
+          <p class="hint">页面必须通过 HTTPS 或 <code>http://localhost</code> 打开，不支持直接使用 <code>file://</code>。</p>
+        </div>
+      </section>
+    </main>
+    <footer>tdx-ths-linker · 本机服务仅监听 127.0.0.1</footer>
+  </div>
 
   <script type="module">
-    import {
-      createStockLinkRuntime,
-      createWebLinker,
-    } from "https://cdn.jsdelivr.net/npm/tdx-ths-linker@0.1.2/dist/index.mjs";
+    import { createStockLinkRuntime, createWebLinker } from "https://cdn.jsdelivr.net/npm/tdx-ths-linker@0.1.2/dist/index.mjs";
 
+    const INSTALLER_URL = "https://fin.onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe";
     const byId = (id) => document.getElementById(id);
-    const web = createWebLinker();
+    const web = createWebLinker({ installerUrl: INSTALLER_URL });
     let runtime;
 
+    const setConnection = (message, tone = "neutral") => {
+      byId("connection").textContent = message;
+      byId("connection").dataset.tone = tone;
+    };
+    const setConnectedControls = (connected) => {
+      for (const id of ["set-tdx", "set-ths", "read", "start", "stop"]) byId(id).disabled = !connected;
+    };
     const renderState = (state) => {
-      byId("state").textContent = JSON.stringify({
-        health: state.runtimeHealth,
-        tdx: { code: state.tdx.code, available: state.tdx.available },
-        ths: { code: state.ths.code, available: state.ths.available },
-      }, null, 2);
+      byId("state").textContent = JSON.stringify({ health: state.runtimeHealth, tdx: { code: state.tdx.code, available: state.tdx.available }, ths: { code: state.ths.code, available: state.ths.available } }, null, 2);
+      for (const target of ["tdx", "ths"]) {
+        const endpoint = state[target];
+        byId(`${target}-card`).dataset.available = String(endpoint.available);
+        byId(`${target}-availability`).textContent = endpoint.available ? "已连接" : "不可用";
+        byId(`${target}-code`).textContent = endpoint.code || "—";
+      }
     };
 
-    const connect = () => {
-      byId("connection").className = "";
-      byId("connection").textContent = "正在唤醒并连接…";
-      const pending = web.connect({ licenseAccepted: byId("license").checked });
-      pending.then((result) => {
+    byId("installer").href = web.installerUrl;
+    if (!web.environment.ok) {
+      setConnection(`${web.environment.status}: ${web.environment.message}。安装后仍需从 HTTPS 或 http://localhost 打开本页面。`, "danger");
+      byId("connect").disabled = true;
+    }
+
+    const connect = async () => {
+      byId("connect").disabled = true;
+      byId("retry").disabled = true;
+      setConnection("正在唤醒并连接本机服务…", "working");
+      try {
+        const result = await web.connect({ licenseAccepted: true });
         const connected = result.status === "connected";
-        byId("connection").textContent = `${result.status}: ${result.message}`;
-        byId("connection").className = connected ? "" : "error";
-        byId("installer").hidden = result.status !== "installer_required";
+        setConnection(`${result.status}: ${result.message}`, connected ? "success" : "danger");
         byId("retry").hidden = result.status !== "installer_required";
         if (result.installerUrl) byId("installer").href = result.installerUrl;
-        for (const id of ["set-tdx", "set-ths", "read", "start", "stop"]) byId(id).disabled = !connected;
+        setConnectedControls(connected);
         if (!connected) return;
-        runtime = createStockLinkRuntime({
-          client: web.client,
-          mode: byId("mode").value,
-          onState: renderState,
-          onCommand: (command) => { byId("connection").textContent = command.message; },
-          onError: (error) => { byId("connection").textContent = String(error); },
-        });
-        return web.client.getState().then(renderState);
-      }).catch((error) => {
-        byId("connection").className = "error";
-        byId("connection").textContent = String(error);
-      });
+        runtime?.stop();
+        runtime = createStockLinkRuntime({ client: web.client, mode: byId("mode").value, onState: renderState, onCommand: (command) => setConnection(command.message, "success"), onError: (error) => setConnection(String(error), "danger") });
+        renderState(await web.client.getState());
+      } catch (error) {
+        setConnectedControls(false);
+        setConnection(String(error), "danger");
+      } finally {
+        byId("connect").disabled = !web.environment.ok;
+        byId("retry").disabled = false;
+      }
     };
 
     byId("connect").addEventListener("click", connect);
     byId("retry").addEventListener("click", connect);
-    byId("read").addEventListener("click", () => web.client.getState().then(renderState));
+    byId("installer").addEventListener("click", () => {
+      setConnection(web.environment.ok ? "安装包开始下载。请运行安装程序，完成后返回本页点击“已安装，唤醒并连接”。" : "安装包开始下载。安装完成后，请改用 HTTPS 或 http://localhost 打开本页再连接。", "working");
+    });
+    byId("read").addEventListener("click", async () => {
+      try { renderState(await web.client.getState()); setConnection("状态读取完成", "success"); }
+      catch (error) { setConnection(String(error), "danger"); }
+    });
+
     const setAndConfirm = async (target) => {
       const code = byId("code").value.trim();
-      if (!/^\d{6}$/.test(code)) return alert("请输入六位股票代码");
+      if (!/^\d{6}$/.test(code)) { setConnection("请输入六位股票代码", "danger"); return; }
+      setConnection(`正在设置并确认 ${target.toUpperCase()}…`, "working");
       const command = await web.client.setCode(target, code);
       if (!command.accepted) throw new Error(`${target.toUpperCase()} 拒绝设置：${command.message}`);
       const deadline = Date.now() + 10_000;
       while (Date.now() < deadline) {
         const state = await web.client.getState();
         renderState(state);
-        if (state[target].code === code) return;
+        if (state[target].code === code) { setConnection(`${target.toUpperCase()} 已确认切换至 ${code}`, "success"); return; }
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
       throw new Error(`${target.toUpperCase()} 在超时前未返回目标代码`);
     };
-    byId("set-tdx").addEventListener("click", () => setAndConfirm("tdx").catch(alert));
-    byId("set-ths").addEventListener("click", () => setAndConfirm("ths").catch(alert));
+
+    byId("set-tdx").addEventListener("click", () => setAndConfirm("tdx").catch((error) => setConnection(String(error), "danger")));
+    byId("set-ths").addEventListener("click", () => setAndConfirm("ths").catch((error) => setConnection(String(error), "danger")));
     byId("mode").addEventListener("change", () => runtime?.setMode(byId("mode").value));
-    byId("start").addEventListener("click", () => runtime?.start());
-    byId("stop").addEventListener("click", () => runtime?.stop());
+    byId("start").addEventListener("click", () => { runtime?.start(); setConnection("自动轮询已启动", "success"); });
+    byId("stop").addEventListener("click", () => { runtime?.stop(); setConnection("自动轮询已停止", "neutral"); });
   </script>
 </body>
 </html>

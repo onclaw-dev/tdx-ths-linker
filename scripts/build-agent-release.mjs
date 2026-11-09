@@ -77,7 +77,7 @@ run(makensis, [
   `/DOUTPUT_EXE=${installerPath}`,
   "/DPRODUCT_NAME=Onclaw TDX THS",
   `/DLICENSE_FILE=${join(root, "LICENSE")}`,
-  `/DICON_FILE=${join(root, "icon.ico")}`,
+  `/DICON_FILE=${join(root, "imgs", "icon.ico")}`,
   join(root, "setup", "onclaw-tdx-ths-setup.nsi"),
 ]);
 if (!unsigned) sign(installerPath);
