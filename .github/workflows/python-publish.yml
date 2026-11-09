@@ -201,7 +201,7 @@ jobs:
           name: npm-dist
           path: dist/npm
       - name: Publish exact tested npm package
-        run: npm publish dist/npm/*.tgz --access public --provenance
+        run: npm publish dist/npm/*.tgz --access public
 
   publish-github:
     name: Publish .node, EXE, and Skill packages
