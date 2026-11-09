@@ -4,15 +4,15 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const electronVersion = process.env.TDX_THS_ELECTRON_VERSION;
-const arch = process.env.TDX_THS_NATIVE_ARCH ?? "x64";
-const buildType = process.env.TDX_THS_NATIVE_BUILD_TYPE ?? "Release";
+const electronVersion = process.env.ONCLAW_TDX_THS_ELECTRON_VERSION;
+const arch = process.env.ONCLAW_TDX_THS_NATIVE_ARCH ?? "x64";
+const buildType = process.env.ONCLAW_TDX_THS_NATIVE_BUILD_TYPE ?? "Release";
 
 if (!electronVersion || !/^\d+\.\d+\.\d+/.test(electronVersion)) {
-  throw new Error("Set TDX_THS_ELECTRON_VERSION to the consuming Harness Electron version");
+  throw new Error("Set ONCLAW_TDX_THS_ELECTRON_VERSION to the consuming Harness Electron version");
 }
 
-if (process.platform !== "win32" && process.env.TDX_THS_ALLOW_CROSS_NATIVE !== "1") {
+if (process.platform !== "win32" && process.env.ONCLAW_TDX_THS_ALLOW_CROSS_NATIVE !== "1") {
   throw new Error("The Windows Node-API addon must be built on Windows with MSVC");
 }
 
@@ -35,7 +35,7 @@ const result = spawnSync(
     "--config",
     buildType,
     "--target",
-    "tdx_ths_linker_node",
+    "onclaw_tdx_ths_node",
   ],
   { cwd: root, stdio: "inherit", shell: process.platform === "win32" },
 );

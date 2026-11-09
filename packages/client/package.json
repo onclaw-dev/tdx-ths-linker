@@ -1,7 +1,12 @@
 {
-  "name": "@tdx-ths-linker/client",
+  "name": "tdx-ths-linker",
   "version": "0.1.0",
-  "description": "Web-agent and Node-API transports for tdx-ths-linker",
+  "description": "Web Agent and Node-API transports for Onclaw TDX/THS integration",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/onclaw-dev/tdx-ths-linker.git",
+    "directory": "packages/client"
+  },
   "type": "module",
   "sideEffects": false,
   "files": ["dist", "README.md"],

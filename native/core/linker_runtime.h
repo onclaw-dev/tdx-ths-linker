@@ -9,7 +9,7 @@
 #include <thread>
 #include <vector>
 
-namespace tdx_ths_linker {
+namespace onclaw_tdx_ths {
 
 struct EndpointConfig {
   std::string name;
@@ -21,13 +21,10 @@ struct EndpointConfig {
 };
 
 struct RuntimeConfig {
-  std::uint32_t profileVersion = 1;
   std::uint32_t pollMs = 350;
   std::uint32_t scanRetryMs = 4000;
   std::uint32_t scanTimeoutMs = 2500;
   std::uint32_t commandTimeoutMs = 1500;
-  bool allowThsWrite = true;
-  bool allowTdxWrite = true;
   EndpointConfig ths;
   EndpointConfig tdx;
 };
@@ -81,7 +78,7 @@ class Runtime {
   Runtime(const Runtime&) = delete;
   Runtime& operator=(const Runtime&) = delete;
 
-  InitResult Init(bool licenseAccepted, bool allowExperimentalThsWrite);
+  InitResult Init(bool licenseAccepted);
   RuntimeState State();
   CommandResult Queue(const std::string& target, const std::string& code);
   void Stop();
@@ -117,4 +114,4 @@ class Runtime {
   std::thread worker_;
 };
 
-}  // namespace tdx_ths_linker
+}  // namespace onclaw_tdx_ths

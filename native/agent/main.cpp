@@ -18,26 +18,18 @@
 
 #include "linker_runtime.h"
 
-#ifndef TDX_THS_ENABLE_THS_WRITE
-#define TDX_THS_ENABLE_THS_WRITE 0
-#endif
-#ifndef TDX_THS_AGENT_CHANNEL
-#define TDX_THS_AGENT_CHANNEL "stable"
-#endif
-#ifndef TDX_THS_LINKER_VERSION
-#define TDX_THS_LINKER_VERSION "0.1.0"
+#ifndef ONCLAW_TDX_THS_VERSION
+#define ONCLAW_TDX_THS_VERSION "0.1.0"
 #endif
 
 namespace {
-constexpr wchar_t kWindowClass[] = L"TdxThsLinkerAgentWindow";
-constexpr wchar_t kMutexName[] = L"Local\\TdxThsLinkerAgent";
-constexpr wchar_t kProtocol[] = L"tdx-ths-linker";
+constexpr wchar_t kWindowClass[] = L"OnclawTdxThsAgentWindow";
+constexpr wchar_t kMutexName[] = L"Local\\OnclawTdxThsAgent";
+constexpr wchar_t kProtocol[] = L"onclaw-tdx-ths";
 constexpr unsigned short kPort = 17654;
 constexpr int kMaxRequestBytes = 32768;
 constexpr UINT kActivateMessage = WM_APP + 1;
-constexpr bool kThsWriteEnabled = TDX_THS_ENABLE_THS_WRITE != 0;
-constexpr char kAgentChannel[] = TDX_THS_AGENT_CHANNEL;
-constexpr char kAgentVersion[] = TDX_THS_LINKER_VERSION;
+constexpr char kAgentVersion[] = ONCLAW_TDX_THS_VERSION;
 
 std::atomic<bool> running{true};
 std::mutex activationMutex;
@@ -45,7 +37,7 @@ std::string pendingNonce;
 std::string allowedOrigin;
 std::string sessionToken;
 std::chrono::steady_clock::time_point sessionExpires;
-tdx_ths_linker::Runtime runtime;
+onclaw_tdx_ths::Runtime runtime;
 
 std::string Utf8(const std::wstring& value) {
   if (value.empty()) return {};
@@ -119,8 +111,8 @@ bool SafeOrigin(const std::string& value) {
 }
 
 bool Activate(const std::string& uri) {
-  constexpr char prefix[] = "tdx-ths-linker://activate?";
-  constexpr char slashPrefix[] = "tdx-ths-linker://activate/?";
+  constexpr char prefix[] = "onclaw-tdx-ths://activate?";
+  constexpr char slashPrefix[] = "onclaw-tdx-ths://activate/?";
   if (uri.size() > 2048) return false;
   std::size_t queryAt = 0;
   if (uri.rfind(prefix, 0) == 0)
@@ -251,7 +243,7 @@ bool ParseRequest(const std::string& raw, Request* request) {
   return true;
 }
 
-std::string EndpointJson(const tdx_ths_linker::EndpointState& value) {
+std::string EndpointJson(const onclaw_tdx_ths::EndpointState& value) {
   return "{\"name\":\"" + JsonEscape(value.name) + "\",\"code\":\"" +
          JsonEscape(value.code) + "\",\"health\":\"" +
          JsonEscape(value.health) + "\",\"lastError\":\"" +
@@ -314,11 +306,9 @@ std::string Handle(const Request& request) {
   if (request.method == "GET" && request.path == "/v1/health") {
     return Response(200,
                     "{\"ok\":true,\"protocolVersion\":1,\"agentVersion\":\"" +
-                        std::string(kAgentVersion) + "\",\"channel\":\"" +
-                        std::string(kAgentChannel) +
-                        "\",\"writableTargets\":[\"tdx\"" +
-                        (kThsWriteEnabled ? ",\"ths\"" : "") +
-                        "],\"paired\":" + (Authorized(request) ? "true" : "false") +
+                    std::string(kAgentVersion) +
+                        "\",\"writableTargets\":[\"tdx\",\"ths\"],\"paired\":" +
+                        (Authorized(request) ? "true" : "false") +
                         "}",
                     request.origin);
   }
@@ -339,10 +329,7 @@ std::string Handle(const Request& request) {
     sessionExpires = std::chrono::steady_clock::now() + std::chrono::minutes(10);
     return Response(200,
                     "{\"sessionToken\":\"" + sessionToken +
-                        "\",\"expiresIn\":600,\"channel\":\"" +
-                        std::string(kAgentChannel) +
-                        "\",\"writableTargets\":[\"tdx\"" +
-                        (kThsWriteEnabled ? ",\"ths\"" : "") + "]}",
+                        "\",\"expiresIn\":600,\"writableTargets\":[\"tdx\",\"ths\"]}",
                     origin);
   }
   if (!Authorized(request))
@@ -350,8 +337,7 @@ std::string Handle(const Request& request) {
   if (request.method == "GET" && request.path == "/v1/state")
     return Response(200, StateJson(), origin);
   if (request.method == "POST" && request.path == "/v1/initialize") {
-    const auto value = runtime.Init(JsonBool(request.body, "licenseAccepted"),
-                                    kThsWriteEnabled);
+    const auto value = runtime.Init(JsonBool(request.body, "licenseAccepted"));
     return Response(200,
                     "{\"ok\":" + std::string(value.ok ? "true" : "false") +
                         ",\"licenseState\":\"" + JsonEscape(value.licenseState) +
@@ -460,7 +446,7 @@ bool SetRegistry(bool remove) {
   if (RegCreateKeyExW(HKEY_CURRENT_USER, root.c_str(), 0, nullptr, 0, KEY_WRITE,
                       nullptr, &key, nullptr) != ERROR_SUCCESS)
     return false;
-  const std::wstring description = L"URL:TDX THS Linker Protocol";
+  const std::wstring description = L"URL:Onclaw TDX THS Protocol";
   const std::wstring empty;
   const std::wstring command = L"\"" + ExecutablePath() + L"\" \"%1\"";
   RegSetValueExW(key, nullptr, 0, REG_SZ,
@@ -536,15 +522,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, wchar_t*, int) {
   WNDCLASSW type{};
   type.lpfnWndProc = WindowProcedure;
   type.hInstance = instance;
-  type.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+  type.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
   type.lpszClassName = kWindowClass;
   RegisterClassW(&type);
-  const auto window = CreateWindowExW(0, kWindowClass, L"TDX THS Linker",
+  const auto window = CreateWindowExW(0, kWindowClass, L"Onclaw TDX THS",
                                       WS_OVERLAPPED, 0, 0, 0, 0, nullptr,
                                       nullptr, instance, nullptr);
   if (!argument.empty() && !Activate(Utf8(argument))) {
-    MessageBoxW(nullptr, L"无效的 TDX THS Linker 唤起参数。",
-                L"TDX THS Linker", MB_ICONWARNING);
+    MessageBoxW(nullptr, L"无效的 Onclaw TDX THS 唤起参数。",
+                L"Onclaw TDX THS", MB_ICONWARNING);
     DestroyWindow(window);
     CloseHandle(mutex);
     return 3;

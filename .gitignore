@@ -1,6 +1,8 @@
 build/
 dist/
 release/
+openspec/
+.codex/
 node_modules/
 *.log
 *.pdb
@@ -8,4 +10,5 @@ node_modules/
 *.exe
 *.msi
 *.zip
+*.pyc
 .DS_Store

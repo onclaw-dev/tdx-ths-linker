@@ -3,11 +3,11 @@
 #include "linker_runtime.h"
 
 namespace {
-using tdx_ths_linker::CommandResult;
-using tdx_ths_linker::EndpointState;
-using tdx_ths_linker::InitResult;
-using tdx_ths_linker::Runtime;
-using tdx_ths_linker::RuntimeState;
+using onclaw_tdx_ths::CommandResult;
+using onclaw_tdx_ths::EndpointState;
+using onclaw_tdx_ths::InitResult;
+using onclaw_tdx_ths::Runtime;
+using onclaw_tdx_ths::RuntimeState;
 
 Runtime& GetRuntime() {
   static Runtime runtime;
@@ -72,7 +72,7 @@ Napi::Value InitRuntime(const Napi::CallbackInfo& info) {
   const auto options = info[0].As<Napi::Object>();
   const bool accepted = options.Has("licenseAccepted") &&
                         options.Get("licenseAccepted").ToBoolean().Value();
-  return InitDto(env, GetRuntime().Init(accepted, true));
+  return InitDto(env, GetRuntime().Init(accepted));
 }
 
 Napi::Value GetRuntimeState(const Napi::CallbackInfo& info) {

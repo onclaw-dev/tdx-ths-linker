@@ -1,3 +1,3 @@
 export * from "./contracts";
-export * from "./addon";
+export * from "./node";
 export * from "./agent";

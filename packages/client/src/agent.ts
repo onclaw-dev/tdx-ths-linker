@@ -2,7 +2,7 @@ import type {
   LinkerConnectionResult,
   LinkerPreparedConnection,
   LinkerTarget,
-  TdxThsLinkerClient,
+  OnclawClient,
 } from "./contracts";
 
 const PROTOCOL_VERSION = 1 as const;
@@ -21,10 +21,10 @@ function nonce(): string {
 }
 
 export function buildActivationUrl(origin: string, value: string): string {
-  return `tdx-ths-linker://activate?v=${PROTOCOL_VERSION}&nonce=${encodeURIComponent(value)}&origin=${encodeURIComponent(origin)}`;
+  return `onclaw-tdx-ths://activate?v=${PROTOCOL_VERSION}&nonce=${encodeURIComponent(value)}&origin=${encodeURIComponent(origin)}`;
 }
 
-export function createAgentClient(options: AgentClientOptions = {}): TdxThsLinkerClient {
+export function createAgentClient(options: AgentClientOptions = {}): OnclawClient {
   const origin = options.origin ?? globalThis.location?.origin;
   if (!origin) throw new Error("Agent client requires an explicit browser origin");
   const baseUrl = options.baseUrl ?? "http://127.0.0.1:17654";
@@ -65,7 +65,6 @@ export function createAgentClient(options: AgentClientOptions = {}): TdxThsLinke
         const health = await call<{
           protocolVersion: number;
           agentVersion: string;
-          channel: "stable" | "beta";
           writableTargets: LinkerTarget[];
         }>("/v1/health", { method: "GET" });
         agentReached = true;
@@ -74,7 +73,6 @@ export function createAgentClient(options: AgentClientOptions = {}): TdxThsLinke
         }
         const claimed = await call<{
           sessionToken: string;
-          channel: "stable" | "beta";
           writableTargets: LinkerTarget[];
         }>("/v1/session/claim", {
           method: "POST",
@@ -85,7 +83,6 @@ export function createAgentClient(options: AgentClientOptions = {}): TdxThsLinke
           ok: true,
           status: "connected",
           message: "Local agent connected",
-          channel: claimed.channel,
           agentVersion: health.agentVersion,
           writableTargets: claimed.writableTargets,
         };

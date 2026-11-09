@@ -1,13 +1,13 @@
 {
-  "name": "tdx-ths-linker",
+  "name": "onclaw-tdx-ths",
   "version": "0.1.0",
   "private": true,
-  "description": "Source-available noncommercial TDX/THS desktop linker",
+  "description": "Source-available noncommercial Onclaw TDX/THS integration",
   "type": "module",
   "workspaces": ["packages/*"],
   "scripts": {
-    "build:client": "npm --workspace @tdx-ths-linker/client run build",
-    "test:client": "npm --workspace @tdx-ths-linker/client run test",
+    "build:client": "npm --workspace tdx-ths-linker run build",
+    "test:client": "npm --workspace tdx-ths-linker run test",
     "build:native": "node scripts/build-native.mjs",
     "release:agent": "node scripts/build-agent-release.mjs"
   },

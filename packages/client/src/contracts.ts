@@ -58,13 +58,12 @@ export interface LinkerConnectionResult {
   ok: boolean;
   status: "connected" | "agent_unavailable" | "protocol_mismatch" | "pairing_failed";
   message: string;
-  channel?: "stable" | "beta";
   agentVersion?: string;
   writableTargets?: LinkerTarget[];
 }
 
-export interface TdxThsLinkerClient {
-  readonly transport: "agent" | "addon";
+export interface OnclawClient {
+  readonly transport: "agent" | "node";
   prepareConnection?: () => LinkerPreparedConnection;
   openAgent?: (prepared: LinkerPreparedConnection) => void;
   connect?: (prepared: LinkerPreparedConnection) => Promise<LinkerConnectionResult>;
@@ -73,7 +72,7 @@ export interface TdxThsLinkerClient {
   setCode: (target: LinkerTarget, code: string) => Promise<LinkerCommandResult>;
 }
 
-export interface NativeAddon {
+export interface NativeNode {
   initRuntime(options: { licenseAccepted: boolean }): LinkerInitResult;
   getRuntimeState(): LinkerRuntimeState;
   setRuntimeCode(target: LinkerTarget, code: string): LinkerCommandResult;

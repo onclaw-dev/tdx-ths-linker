@@ -10,7 +10,7 @@
 #include <cstring>
 #include <sstream>
 
-namespace tdx_ths_linker {
+namespace onclaw_tdx_ths {
 namespace {
 using Clock = std::chrono::steady_clock;
 using Ms = std::chrono::milliseconds;
@@ -128,15 +128,13 @@ RuntimeConfig DefaultRuntimeConfig() {
 Runtime::Runtime() = default;
 Runtime::~Runtime() { Stop(); }
 
-InitResult Runtime::Init(bool licenseAccepted,
-                         bool allowExperimentalThsWrite) {
+InitResult Runtime::Init(bool licenseAccepted) {
   Stop();
   {
     std::lock_guard lock(queueMutex_);
     commands_.clear();
   }
   RuntimeConfig config = DefaultRuntimeConfig();
-  config.allowThsWrite = allowExperimentalThsWrite;
   {
     std::lock_guard lock(mutex_);
     config_ = config;
@@ -145,7 +143,7 @@ InitResult Runtime::Init(bool licenseAccepted,
     state_.initialized = licenseAccepted;
     state_.runtimeHealth = licenseAccepted ? "initializing" : "unavailable";
     state_.message = licenseAccepted
-                         ? "tdx-ths-linker runtime initialized"
+                         ? "onclaw-tdx-ths runtime initialized"
                          : "accept the noncommercial license before initialization";
     state_.ths.health = licenseAccepted ? "initializing" : "unavailable";
     state_.tdx.health = licenseAccepted ? "initializing" : "unavailable";
@@ -153,7 +151,7 @@ InitResult Runtime::Init(bool licenseAccepted,
   if (licenseAccepted) Start();
   return {licenseAccepted,
           licenseAccepted ? "accepted" : "unaccepted",
-          licenseAccepted ? "tdx-ths-linker runtime initialized"
+          licenseAccepted ? "onclaw-tdx-ths runtime initialized"
                           : "accept the noncommercial license before initialization",
           licenseAccepted ? "initializing" : "unavailable"};
 }
@@ -166,11 +164,9 @@ RuntimeState Runtime::State() {
 CommandResult Runtime::Queue(const std::string& target,
                              const std::string& code) {
   RuntimeState state;
-  RuntimeConfig config;
   {
     std::lock_guard lock(mutex_);
     state = state_;
-    config = config_;
   }
   if (!state.initialized) {
     return {false, false, "unavailable", target, code, state.message};
@@ -182,10 +178,6 @@ CommandResult Runtime::Queue(const std::string& target,
   if (target != "ths" && target != "tdx") {
     return {false, false, "unsupported_target", target, code,
             "unsupported target"};
-  }
-  if (target == "ths" && !config.allowThsWrite) {
-    return {false, false, "unsupported_target", target, code,
-            "THS write is available only in the experimental build"};
   }
   {
     std::lock_guard lock(queueMutex_);
@@ -476,4 +468,4 @@ void Runtime::RecomputeHealth() {
   state_.runtimeHealth = ready ? (fallback ? "degraded" : "ready") : "degraded";
 }
 
-}  // namespace tdx_ths_linker
+}  // namespace onclaw_tdx_ths

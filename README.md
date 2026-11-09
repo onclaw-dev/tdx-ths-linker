@@ -1,15 +1,14 @@
-# tdx-ths-linker
+# onclaw-tdx-ths
 
-`tdx-ths-linker` 是一个 Windows 桌面股票软件联动组件，为 Web 和基于 Node/Electron 的 Harness 提供统一的通达信（TDX）与同花顺（THS）状态读取和股票代码联动能力。
+`onclaw-tdx-ths` 是一个 Windows 桌面股票软件联动组件，为 Web 和基于 Node/Electron 的 Harness 提供统一的通达信（TDX）与同花顺（THS）状态读取和股票代码联动能力。
 
 当前版本为独立工程基线，尚未替换任何现有 Onclaw 前端实现。待本项目形成稳定、签名的正式发布后，上层项目应通过版本化产物接入，不应复制本仓库源码。
 
 ## 使用边界
 
-- Web：安装 `tdx-ths-linker-agent.exe`，通过自定义协议和 loopback HTTP API 联动。
+- Web：安装 `onclaw-tdx-ths-agent.exe`，通过自定义协议和 loopback HTTP API 联动。
 - Harness：加载 `tdx-ths-linker.node`，通过 Node-API 联动。
-- 稳定版 Agent：支持读取 TDX/THS 状态和写入 TDX。
-- Beta Agent：额外启用实验性的 THS 写入能力。
+- Agent：支持读取和写入 TDX/THS。
 - 平台：当前仅支持 Windows x64。
 
 ## 授权
@@ -26,19 +25,19 @@
 
 ```text
 Web application
-  └─ @tdx-ths-linker/client
-      └─ tdx-ths-linker:// activation
+  └─ tdx-ths-linker
+      └─ onclaw-tdx-ths:// activation
           └─ agent.exe ─┐
                         ├─ shared C++ runtime ── TDX / THS
 Harness ── .node ──────┘
 ```
 
-共享 C++ runtime 内置版本化运行 profile，不再从产品后端取得用户授权或进程偏移配置。`profiles/default-profile.json` 是当前 profile 的可审查镜像；正式发布前应建立 profile 生成及签名流程，避免二进制内置配置和 JSON 漂移。
+共享 C++ runtime 内置目标进程、模块、特征码和 fallback offset 配置，不从产品后端取得用户授权或进程偏移配置。
 
 ## Web 接入
 
 ```ts
-import { createAgentClient } from "@tdx-ths-linker/client";
+import { createAgentClient } from "tdx-ths-linker";
 
 const linker = createAgentClient();
 const prepared = linker.prepareConnection!();
@@ -58,17 +57,37 @@ await linker.setCode("tdx", "600000");
 
 ```ts
 import { createRequire } from "node:module";
-import { createAddonClient } from "@tdx-ths-linker/client";
+import { createNodeClient } from "tdx-ths-linker";
 
 const require = createRequire(import.meta.url);
-const addon = require("./native/win-x64/tdx-ths-linker.node");
-const linker = createAddonClient(addon);
+const node = require("./native/win-x64/tdx-ths-linker.node");
+const linker = createNodeClient(node);
 
 await linker.initialize(true);
 const state = await linker.getState();
 ```
 
 `.node` 必须针对目标 Electron/Node ABI、Windows 架构和运行环境构建并随 Harness 分发。
+
+## Python 接入
+
+PyPI 包通过 wheel 内置的 `onclaw-tdx-ths.dll` 直接复用 C++ runtime，不启动 Agent EXE，也不使用 loopback HTTP 或自定义协议。
+
+```powershell
+py -m pip install tdx-ths-linker
+```
+
+```python
+from tdx_ths_linker import Client
+
+with Client(license_accepted=True) as linker:
+    state = linker.get_state()
+    print(state.tdx.code, state.ths.code)
+    linker.set_code("tdx", "002131")
+    linker.set_code("ths", "002131")
+```
+
+首个 Python 版本仅支持 Windows x64。`set_code()` 返回命令是否已进入队列；需要通过后续 `get_state()` 确认目标软件已切换。Python wheel 中的 DLL 与 Agent 使用相同的进程读取和 THS 内存写入逻辑，因此仍需完成目标软件版本兼容测试、Authenticode 签名和杀毒误报验证。
 
 ## 构建
 
@@ -78,41 +97,40 @@ const state = await linker.getState();
 npm install
 npm run build:client
 npm run test:client
-$env:TDX_THS_ELECTRON_VERSION = "<Harness Electron version>"
+$env:ONCLAW_TDX_THS_ELECTRON_VERSION = "<Harness Electron version>"
 npm run build:native
 ```
 
 开发用未签名 Agent：
 
 ```powershell
-$env:TDX_THS_RELEASE_UNSIGNED = "1"
+$env:ONCLAW_TDX_THS_RELEASE_UNSIGNED = "1"
 npm run release:agent
 ```
 
 正式发布必须提供：
 
 ```text
-TDX_THS_SIGNTOOL
-TDX_THS_SIGN_CERTIFICATE
-TDX_THS_SIGN_PASSWORD
+ONCLAW_TDX_THS_SIGNTOOL
+ONCLAW_TDX_THS_SIGN_CERTIFICATE
+ONCLAW_TDX_THS_SIGN_PASSWORD
 ```
 
-发布脚本生成稳定版、Beta 版、对应安装器和 `SHA256SUMS.txt`。
+发布脚本生成唯一的可读写 Agent、对应安装器和 `SHA256SUMS.txt`。
 
 ## 安全说明
 
 - Agent 只监听 `127.0.0.1:17654`。
 - Web 必须经过自定义协议激活、一次性 nonce、精确 Origin 和短期 bearer token 配对。
-- THS 写入涉及目标进程内存操作，仅在 Beta/实验构建启用。
+- THS 写入涉及目标进程内存操作，发布前必须针对目标 THS 版本完成兼容性验证。
 - 在验证第三方软件版本兼容性前，不应将 fallback offset 视为长期稳定接口。
 - 正式发行二进制必须进行 Authenticode 签名。
 
 ## 稳定发布前清单
 
 - 在 Windows x64 上完成 C++、Node-API 和安装器构建。
-- 验证 TDX/THS 支持版本和 profile。
+- 验证 TDX/THS 支持版本和内置匹配配置。
 - 验证 Web 配对、CORS、session 过期和单实例启动。
 - 验证目标 Electron ABI 下的 `.node` 装载。
 - 完成正式代码签名和校验文件验证。
-- 建立 profile 签名、升级和回滚机制。
 - 经过许可证与第三方软件兼容方式的法律审查。

@@ -1,0 +1,209 @@
+name: Build and publish packages
+
+on:
+  pull_request:
+    paths:
+      - "native/**"
+      - "python/**"
+      - "packages/client/**"
+      - "scripts/**"
+      - "setup/**"
+      - "package.json"
+      - "package-lock.json"
+      - "pyproject.toml"
+      - "CMakeLists.txt"
+      - ".github/workflows/python-publish.yml"
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      electron_version:
+        description: "Harness Electron version used to compile the .node package"
+        required: false
+        default: "39.2.0"
+
+permissions:
+  contents: read
+
+env:
+  ELECTRON_VERSION: ${{ inputs.electron_version || vars.ONCLAW_TDX_THS_ELECTRON_VERSION || '39.2.0' }}
+
+jobs:
+  build-node:
+    name: Build .node package
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Compile Electron Node-API module
+        shell: pwsh
+        env:
+          ONCLAW_TDX_THS_ELECTRON_VERSION: ${{ env.ELECTRON_VERSION }}
+        run: npm run build:native
+      - name: Package .node module
+        shell: pwsh
+        run: |
+          $stage = "dist/node-package"
+          $archive = "dist/tdx-ths-linker-node-electron-$env:ELECTRON_VERSION-win-x64.zip"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item "dist/native/win-x64/tdx-ths-linker.node" $stage
+          $hash = (Get-FileHash "$stage/tdx-ths-linker.node" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  tdx-ths-linker.node" | Set-Content "$stage/SHA256SUMS.txt" -Encoding ascii
+          Compress-Archive -Path "$stage/*" -DestinationPath $archive
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-release
+          path: dist/tdx-ths-linker-node-*.zip
+          if-no-files-found: error
+
+  build-npm:
+    name: Build npm package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build and test client
+        run: npm run test:client
+      - name: Pack exact npm artifact
+        run: |
+          mkdir -p dist/npm
+          npm pack --workspace tdx-ths-linker --pack-destination dist/npm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-dist
+          path: dist/npm/*.tgz
+          if-no-files-found: error
+
+  build-python:
+    name: Build PyPI wheel
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tools
+        run: python -m pip install --upgrade build pytest twine
+      - name: Run Python unit tests
+        env:
+          PYTHONPATH: python/src
+        run: python -m pytest python/tests
+      - name: Build wheel
+        run: python -m build --wheel
+      - name: Validate metadata
+        run: python -m twine check dist/*
+      - name: Validate wheel contents and clean install
+        shell: pwsh
+        run: |
+          $wheel = Get-ChildItem dist/*.whl | Select-Object -First 1
+          python scripts/validate-python-wheel.py $wheel.FullName
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/*
+          if-no-files-found: error
+
+  build-agent:
+    name: Build Agent EXE package
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Agent-only build
+        run: >-
+          cmake -S . -B build/agent -A x64
+          -DONCLAW_BUILD_CAPI=OFF
+          -DONCLAW_BUILD_NODE=OFF
+          -DONCLAW_BUILD_AGENT=ON
+          -DONCLAW_BUILD_TESTS=OFF
+      - name: Compile Agent
+        run: cmake --build build/agent --config Release --target onclaw-tdx-ths-agent
+      - name: Package Agent
+        shell: pwsh
+        run: |
+          $stage = "dist/agent-package"
+          $archive = "dist/onclaw-tdx-ths-agent-win-x64.zip"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item "build/agent/Release/onclaw-tdx-ths-agent.exe" $stage
+          $hash = (Get-FileHash "$stage/onclaw-tdx-ths-agent.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  onclaw-tdx-ths-agent.exe" | Set-Content "$stage/SHA256SUMS.txt" -Encoding ascii
+          Compress-Archive -Path "$stage/*" -DestinationPath $archive
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-release
+          path: dist/onclaw-tdx-ths-agent-*.zip
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish PyPI package
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-python
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-npm:
+    name: Publish npm package
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-npm
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: Install npm with Trusted Publishing support
+        run: npm install --global npm@^11.5.1
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-dist
+          path: dist/npm
+      - name: Publish exact tested npm package
+        run: npm publish dist/npm/*.tgz --access public --provenance
+
+  publish-github:
+    name: Publish .node and EXE packages
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-node, build-agent]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-release
+          path: release-assets
+      - uses: actions/download-artifact@v4
+        with:
+          name: agent-release
+          path: release-assets
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" release-assets/* --generate-notes --verify-tag
+          fi
