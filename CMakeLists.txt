@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(onclaw_tdx_ths VERSION 0.1.0 LANGUAGES CXX)
+project(onclaw_tdx_ths VERSION 0.1.1 LANGUAGES CXX)
 
 if(NOT WIN32)
   message(FATAL_ERROR "onclaw-tdx-ths currently supports Windows only")
