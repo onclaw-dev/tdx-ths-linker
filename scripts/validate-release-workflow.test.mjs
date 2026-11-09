@@ -3,6 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const workflow = await readFile(new URL("../.github/workflows/python-publish.yml", import.meta.url), "utf8");
+const installerValidation = await readFile(
+  new URL("../scripts/validate-agent-installer.ps1", import.meta.url),
+  "utf8",
+);
 
 test("release workflow is triggered only by v-prefixed tag pushes", () => {
   assert.match(workflow, /on:\s*\n\s+push:\s*\n\s+tags:\s*\["v\*"\]/);
@@ -25,6 +29,10 @@ test("Web Agent release contains only installer distribution assets", () => {
   assert.match(workflow, /release\/agent\/SHA256SUMS\.txt/);
   assert.match(workflow, /name: agent-installer-release/);
   assert.match(workflow, /path: dist\/agent-release-assets\/\*/);
+  assert.match(installerValidation, /Start-Process -FilePath \$agent/);
+  assert.match(installerValidation, /-WindowStyle Hidden -Wait -PassThru/);
+  assert.match(installerValidation, /\$verification\.ExitCode/);
+  assert.doesNotMatch(installerValidation, /& \$agent --verify-registration/);
 });
 
 test("npm release validates all integration examples", () => {
@@ -37,6 +45,8 @@ test("npm release validates all integration examples", () => {
 
 test("registry releases precede GitHub Release publication", () => {
   assert.match(workflow, /npm publish dist\/npm\/\*\.tgz --access public --tag latest/);
+  assert.match(workflow, /npm view "tdx-ths-linker@\$version" version/);
+  assert.match(workflow, /skip-existing: true/);
   assert.match(
     workflow,
     /needs: \[build-node, build-agent, build-skill, publish-pypi, publish-npm\]/,

@@ -200,6 +200,8 @@ jobs:
           name: python-dist
           path: dist
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
 
   publish-npm:
     name: Publish npm package
@@ -221,7 +223,14 @@ jobs:
           name: npm-dist
           path: dist/npm
       - name: Publish exact tested npm package
-        run: npm publish dist/npm/*.tgz --access public --tag latest
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "tdx-ths-linker@$version" version >/dev/null 2>&1; then
+            echo "tdx-ths-linker@$version already exists; continuing partial release recovery"
+          else
+            npm publish dist/npm/*.tgz --access public --tag latest
+          fi
 
   publish-github:
     name: Publish .node, installer, and Skill packages

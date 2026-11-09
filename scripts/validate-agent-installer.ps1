@@ -26,9 +26,15 @@ try {
     throw "Installer did not create the expected Agent and uninstaller"
   }
 
-  & $agent --verify-registration
-  if ($LASTEXITCODE -ne 0) {
-    throw "Installed Agent failed protocol registration verification with code $LASTEXITCODE"
+  # The Agent is a Windows GUI-subsystem executable. PowerShell's call operator
+  # does not consistently wait for GUI applications on hosted runners, leaving
+  # $LASTEXITCODE unset. Start-Process gives us a deterministic completion and
+  # exit code in both interactive Windows and GitHub Actions.
+  $verification = Start-Process -FilePath $agent `
+    -ArgumentList "--verify-registration" `
+    -WindowStyle Hidden -Wait -PassThru
+  if ($verification.ExitCode -ne 0) {
+    throw "Installed Agent failed protocol registration verification with code $($verification.ExitCode)"
   }
 
   $commandKey = Join-Path $protocolKey "shell\open\command"
