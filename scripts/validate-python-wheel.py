@@ -31,14 +31,10 @@ def main() -> None:
         metadata = archive.read(metadata_name).decode("utf-8")
         require("Name: tdx-ths-linker" in metadata, "Unexpected distribution name")
         require(
-            "License-Expression: PolyForm-Noncommercial-1.0.0" in metadata,
+            "License-Expression: GPL-3.0-only" in metadata,
             "Wheel is missing the SPDX license expression",
         )
-        require(any(name.endswith(".dist-info/licenses/LICENSE.md") for name in names), "Missing LICENSE.md")
-        require(
-            any(name.endswith(".dist-info/licenses/COMMERCIAL-LICENSE.md") for name in names),
-            "Missing COMMERCIAL-LICENSE.md",
-        )
+        require(any(name.endswith(".dist-info/licenses/LICENSE") for name in names), "Missing LICENSE")
 
     if args.skip_install:
         return
@@ -60,6 +56,10 @@ def main() -> None:
             ],
             check=True,
         )
+        command = environment / "Scripts" / "tdx-ths-linker.exe"
+        require(command.is_file(), "Installed wheel is missing the tdx-ths-linker console command")
+        subprocess.run([str(command), "--help"], check=True)
+        subprocess.run([str(python), "-m", "tdx_ths_linker", "--help"], check=True)
 
 
 if __name__ == "__main__":

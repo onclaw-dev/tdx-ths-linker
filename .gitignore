@@ -4,6 +4,7 @@ release/
 openspec/
 .codex/
 node_modules/
+.pytest_cache/
 *.log
 *.pdb
 *.node

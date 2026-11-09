@@ -1,0 +1,6 @@
+interface:
+  display_name: "TDX THS Linker"
+  short_description: "Read and link TDX/THS desktop codes"
+  default_prompt: "Use $tdx-ths-linker to inspect or explicitly link the TDX and THS desktop code."
+policy:
+  allow_implicit_invocation: true

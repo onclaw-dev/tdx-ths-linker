@@ -8,8 +8,8 @@ version = "0.1.0"
 description = "Native Windows Python integration for TDX and THS"
 readme = "README.md"
 requires-python = ">=3.9"
-license = "PolyForm-Noncommercial-1.0.0"
-license-files = ["LICENSE.md", "COMMERCIAL-LICENSE.md"]
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 authors = [{ name = "onclaw-tdx-ths contributors" }]
 keywords = ["tdx", "ths", "windows", "stock"]
 classifiers = [
@@ -17,6 +17,15 @@ classifiers = [
   "Operating System :: Microsoft :: Windows",
   "Typing :: Typed",
 ]
+
+[project.urls]
+Homepage = "https://github.com/onclaw-dev/tdx-ths-linker"
+Documentation = "https://github.com/onclaw-dev/tdx-ths-linker/tree/main/docs"
+Source = "https://github.com/onclaw-dev/tdx-ths-linker"
+Issues = "https://github.com/onclaw-dev/tdx-ths-linker/issues"
+
+[project.scripts]
+tdx-ths-linker = "tdx_ths_linker.cli:entrypoint"
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
@@ -35,8 +44,7 @@ sdist.include = [
   "python/tests/**",
   "CMakeLists.txt",
   "README.md",
-  "LICENSE.md",
-  "COMMERCIAL-LICENSE.md",
+  "LICENSE",
 ]
 
 [tool.scikit-build.cmake.define]

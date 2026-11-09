@@ -61,7 +61,10 @@ if(ONCLAW_BUILD_NODE)
 endif()
 
 if(ONCLAW_BUILD_AGENT)
-  add_executable(onclaw-tdx-ths-agent WIN32 native/agent/main.cpp)
+  add_executable(onclaw-tdx-ths-agent WIN32
+    native/agent/main.cpp
+    native/agent/agent.rc
+  )
   target_link_libraries(onclaw-tdx-ths-agent PRIVATE onclaw_tdx_ths_core ws2_32 bcrypt shell32 advapi32)
   target_compile_options(onclaw-tdx-ths-agent PRIVATE /utf-8 /EHsc)
   target_compile_definitions(onclaw-tdx-ths-agent PRIVATE

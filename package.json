@@ -2,7 +2,7 @@
   "name": "onclaw-tdx-ths",
   "version": "0.1.0",
   "private": true,
-  "description": "Source-available noncommercial Onclaw TDX/THS integration",
+  "description": "GPL-licensed Onclaw TDX/THS integration",
   "type": "module",
   "workspaces": ["packages/*"],
   "scripts": {
@@ -15,5 +15,5 @@
     "cmake-js": "8.0.0",
     "node-addon-api": "^8.3.1"
   },
-  "license": "PolyForm-Noncommercial-1.0.0"
+  "license": "GPL-3.0-only"
 }

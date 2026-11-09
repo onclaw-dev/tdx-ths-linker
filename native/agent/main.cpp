@@ -17,6 +17,7 @@
 #include <thread>
 
 #include "linker_runtime.h"
+#include "resource.h"
 
 #ifndef ONCLAW_TDX_THS_VERSION
 #define ONCLAW_TDX_THS_VERSION "0.1.0"
@@ -522,6 +523,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, wchar_t*, int) {
   WNDCLASSW type{};
   type.lpfnWndProc = WindowProcedure;
   type.hInstance = instance;
+  type.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_TDX_THS_LINKER));
   type.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
   type.lpszClassName = kWindowClass;
   RegisterClassW(&type);

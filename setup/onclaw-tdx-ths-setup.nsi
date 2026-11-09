@@ -6,8 +6,11 @@ Name "${PRODUCT_NAME}"
 OutFile "${OUTPUT_EXE}"
 InstallDir "$LOCALAPPDATA\OnclawTdxThs"
 SetCompressor /SOLID lzma
+Icon "${ICON_FILE}"
+UninstallIcon "${ICON_FILE}"
 
-Page license "${LICENSE_FILE}"
+Page license
+LicenseData "${LICENSE_FILE}"
 Page directory
 Page instfiles
 UninstPage uninstConfirm
