@@ -8,7 +8,7 @@ npx --no-install tdx-ths-linker [--json] [--accept-license] state
 npx --no-install tdx-ths-linker [--json] [--accept-license] set CODE --target tdx|ths|both [--wait] [--timeout SECONDS] [--poll-interval SECONDS]
 ```
 
-Install the npm package in the current project before invoking it. `CODE` is exactly six ASCII digits. Native commands require `--accept-license` or environment variable `TDX_THS_LINKER_LICENSE_ACCEPTED=1`.
+Install the npm package in the current project before invoking it. Commands reuse the single loopback Agent, prefer a registered Web installation, or directly start the packaged bare Agent without registry changes. `CODE` is exactly six ASCII digits. Agent commands require `--accept-license` or environment variable `TDX_THS_LINKER_LICENSE_ACCEPTED=1`.
 
 ## JSON envelope
 
@@ -49,7 +49,7 @@ In JSON mode stdout contains exactly one envelope. Do not parse human-readable o
 | `3` | Requested target unavailable |
 | `4` | Native command rejected |
 | `5` | Confirmation timeout |
-| `6` | Unsupported platform, DLL load, ABI, initialization, or native call failure |
+| `6` | Unsupported platform, Agent launch, connection, or initialization failure |
 | `10` | Unexpected driver failure |
 
 ## Completion rules

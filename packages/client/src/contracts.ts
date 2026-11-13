@@ -24,6 +24,8 @@ export interface LinkerEndpointState {
 export interface LinkerRuntimeState {
   initialized: boolean;
   isSupported: boolean;
+  active: boolean;
+  lastActivityAt: number;
   runtimeHealth: LinkerHealth;
   licenseState: LinkerLicenseState;
   message: string;
@@ -44,11 +46,12 @@ export interface LinkerCommandResult {
   status: string;
   target: LinkerTarget;
   code: string;
+  clientId: string;
+  requestId: string;
   message: string;
 }
 
 export interface LinkerPreparedConnection {
-  nonce: string;
   launchUrl: string;
   origin: string;
   protocolVersion: 1;
@@ -63,17 +66,11 @@ export interface LinkerConnectionResult {
 }
 
 export interface OnclawClient {
-  readonly transport: "agent" | "node";
+  readonly transport: "agent";
   prepareConnection?: () => LinkerPreparedConnection;
   openAgent?: (prepared: LinkerPreparedConnection) => void;
   connect?: (prepared: LinkerPreparedConnection) => Promise<LinkerConnectionResult>;
   initialize: (licenseAccepted: boolean) => Promise<LinkerInitResult>;
   getState: () => Promise<LinkerRuntimeState>;
   setCode: (target: LinkerTarget, code: string) => Promise<LinkerCommandResult>;
-}
-
-export interface NativeNode {
-  initRuntime(options: { licenseAccepted: boolean }): LinkerInitResult;
-  getRuntimeState(): LinkerRuntimeState;
-  setRuntimeCode(target: LinkerTarget, code: string): LinkerCommandResult;
 }

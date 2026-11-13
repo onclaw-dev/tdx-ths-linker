@@ -8,7 +8,6 @@ import {
 } from "../dist/index.mjs";
 
 const prepared = {
-  nonce: "a".repeat(64),
   launchUrl: "onclaw-tdx-ths://activate",
   origin: "https://example.com",
   protocolVersion: 1,
@@ -23,7 +22,7 @@ test("Web environment accepts Windows HTTPS and localhost only", () => {
   assert.equal(inspectWebAgentEnvironment({ origin: "https://example.com", platform: "MacIntel" }).status, "unsupported_platform");
 });
 
-test("Web connector opens synchronously, retries claim, and initializes after consent", async () => {
+test("Web connector opens synchronously, retries Origin grant, and initializes after consent", async () => {
   const events = [];
   let attempt = 0;
   let clock = 0;
@@ -100,17 +99,30 @@ test("Web connector exposes installer recovery and loopback denial", async () =>
   assert.equal((await denied.connect({ licenseAccepted: true })).status, "local_network_denied");
 });
 
-test("Agent fetches declare loopback address-space intent", async () => {
+test("Agent calls are sessionless and writes carry caller identity", async () => {
   const requests = [];
   const fakeFetch = async (url, init) => {
     requests.push([url, init]);
     if (url.endsWith("/v1/health")) {
-      return new Response(JSON.stringify({ protocolVersion: 1, agentVersion: "test", writableTargets: ["tdx", "ths"] }));
+      return new Response(JSON.stringify({ protocolVersion: 1, agentVersion: "test", writableTargets: ["tdx", "ths"], writeAuthorized: true }));
     }
-    return new Response(JSON.stringify({ sessionToken: "token", writableTargets: ["tdx", "ths"] }));
+    return new Response(JSON.stringify({ ok: true }));
   };
-  const client = createAgentClient({ origin: "https://example.com", fetch: fakeFetch });
-  await client.connect(client.prepareConnection());
-  assert.equal(requests.length, 2);
+  const client = createAgentClient({ origin: "https://example.com", clientId: "client-test", fetch: fakeFetch });
+  const connected = await client.connect(client.prepareConnection());
+  assert.equal(connected.status, "connected");
+  await client.getState();
+  await client.setCode("tdx", "600000");
+  assert.equal(requests.length, 3);
   assert.ok(requests.every(([, init]) => init.targetAddressSpace === "loopback"));
+  assert.ok(requests.every(([, init]) => !new Headers(init.headers).has("Authorization")));
+  const write = JSON.parse(requests[2][1].body);
+  assert.equal(write.clientId, "client-test");
+  assert.match(write.requestId, /^request-[0-9a-f]{64}$/);
+});
+
+test("Agent client reports protocol mismatch before initialization", async () => {
+  const fakeFetch = async () => new Response(JSON.stringify({ protocolVersion: 2, agentVersion: "other", writableTargets: [], writeAuthorized: false }));
+  const client = createAgentClient({ origin: "https://example.com", fetch: fakeFetch });
+  assert.equal((await client.connect(client.prepareConnection())).status, "protocol_mismatch");
 });

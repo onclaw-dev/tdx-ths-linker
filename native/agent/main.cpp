@@ -1,5 +1,4 @@
 #include <windows.h>
-#include <bcrypt.h>
 #include <shellapi.h>
 #include <shlobj_core.h>
 #include <winsock2.h>
@@ -15,12 +14,13 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unordered_set>
 
 #include "linker_runtime.h"
 #include "resource.h"
 
 #ifndef ONCLAW_TDX_THS_VERSION
-#define ONCLAW_TDX_THS_VERSION "0.1.2"
+#define ONCLAW_TDX_THS_VERSION "0.1.3"
 #endif
 
 namespace {
@@ -34,10 +34,7 @@ constexpr char kAgentVersion[] = ONCLAW_TDX_THS_VERSION;
 
 std::atomic<bool> running{true};
 std::mutex activationMutex;
-std::string pendingNonce;
-std::string allowedOrigin;
-std::string sessionToken;
-std::chrono::steady_clock::time_point sessionExpires;
+std::unordered_set<std::string> allowedOrigins;
 onclaw_tdx_ths::Runtime runtime;
 
 std::string Utf8(const std::wstring& value) {
@@ -83,10 +80,11 @@ std::string UrlDecode(const std::string& value) {
   return result;
 }
 
-bool SafeNonce(const std::string& value) {
-  return value.size() >= 32 && value.size() <= 160 &&
+bool SafeIdentifier(const std::string& value) {
+  return !value.empty() && value.size() <= 128 &&
          std::all_of(value.begin(), value.end(), [](unsigned char ch) {
-           return std::isalnum(ch) || ch == '-' || ch == '_';
+           return std::isalnum(ch) || ch == '-' || ch == '_' || ch == '.' ||
+                  ch == ':';
          });
 }
 
@@ -123,8 +121,8 @@ bool Activate(const std::string& uri) {
   else
     return false;
 
-  std::string version = "1", nonce, origin;
-  bool sawVersion = false, sawNonce = false, sawOrigin = false;
+  std::string version, origin;
+  bool sawVersion = false, sawOrigin = false;
   std::stringstream query(uri.substr(queryAt));
   std::string part;
   while (std::getline(query, part, '&')) {
@@ -135,9 +133,6 @@ bool Activate(const std::string& uri) {
     if (key == "v" && !sawVersion) {
       version = value;
       sawVersion = true;
-    } else if (key == "nonce" && !sawNonce) {
-      nonce = value;
-      sawNonce = true;
     } else if (key == "origin" && !sawOrigin) {
       origin = value;
       sawOrigin = true;
@@ -145,27 +140,10 @@ bool Activate(const std::string& uri) {
       return false;
     }
   }
-  if (version != "1" || !SafeNonce(nonce) || !SafeOrigin(origin)) return false;
+  if (version != "1" || !SafeOrigin(origin)) return false;
   std::lock_guard lock(activationMutex);
-  pendingNonce = nonce;
-  allowedOrigin = origin;
-  sessionToken.clear();
+  allowedOrigins.insert(origin);
   return true;
-}
-
-std::string RandomToken() {
-  unsigned char bytes[32]{};
-  if (BCryptGenRandom(nullptr, bytes, sizeof(bytes),
-                      BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)
-    return {};
-  static constexpr char alphabet[] = "0123456789abcdef";
-  std::string result;
-  result.reserve(64);
-  for (const auto byte : bytes) {
-    result.push_back(alphabet[byte >> 4]);
-    result.push_back(alphabet[byte & 15]);
-  }
-  return result;
 }
 
 std::string JsonEscape(const std::string& value) {
@@ -209,7 +187,6 @@ struct Request {
   std::string path;
   std::string host;
   std::string origin;
-  std::string authorization;
   std::string body;
 };
 
@@ -234,7 +211,6 @@ bool ParseRequest(const std::string& raw, Request* request) {
     const auto value = Trim(line.substr(separator + 1));
     if (key == "host") request->host = value;
     else if (key == "origin") request->origin = value;
-    else if (key == "authorization") request->authorization = value;
     else if (key == "content-length")
       contentLength = std::strtoul(value.c_str(), nullptr, 10);
   }
@@ -261,7 +237,9 @@ std::string EndpointJson(const onclaw_tdx_ths::EndpointState& value) {
 std::string StateJson() {
   const auto value = runtime.State();
   return "{\"initialized\":" + std::string(value.initialized ? "true" : "false") +
-         ",\"isSupported\":true,\"runtimeHealth\":\"" +
+         ",\"isSupported\":true,\"active\":" +
+         (value.active ? "true" : "false") + ",\"lastActivityAt\":" +
+         std::to_string(value.lastActivityAt) + ",\"runtimeHealth\":\"" +
          JsonEscape(value.runtimeHealth) + "\",\"licenseState\":\"" +
          JsonEscape(value.licenseState) + "\",\"message\":\"" +
          JsonEscape(value.message) + "\",\"ths\":" + EndpointJson(value.ths) +
@@ -283,83 +261,77 @@ std::string Response(int status, const std::string& body,
       std::to_string(body.size()) + "\r\n";
   if (!origin.empty()) {
     headers += "Access-Control-Allow-Origin: " + origin +
-               "\r\nVary: Origin\r\nAccess-Control-Allow-Headers: Authorization, "
-               "Content-Type\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+               "\r\nVary: Origin\r\nAccess-Control-Allow-Headers: Content-Type\r\n"
+               "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
                "Access-Control-Allow-Private-Network: true\r\n"
                "Access-Control-Max-Age: 300\r\n";
   }
   return headers + "\r\n" + body;
 }
 
-bool Authorized(const Request& request) {
+bool WriteAuthorized(const Request& request) {
+  if (request.origin.empty()) return true;
   std::lock_guard lock(activationMutex);
-  return !sessionToken.empty() &&
-         std::chrono::steady_clock::now() < sessionExpires &&
-         request.authorization == "Bearer " + sessionToken;
+  return allowedOrigins.find(request.origin) != allowedOrigins.end();
 }
 
 std::string Handle(const Request& request) {
   if (request.host != "127.0.0.1:17654")
     return Response(403, "{\"error\":\"invalid_host\"}");
-  if (!SafeOrigin(request.origin))
+  if (!request.origin.empty() && !SafeOrigin(request.origin))
     return Response(403, "{\"error\":\"invalid_origin\"}");
   if (request.method == "OPTIONS") return Response(204, "", request.origin);
   if (request.method == "GET" && request.path == "/v1/health") {
     return Response(200,
                     "{\"ok\":true,\"protocolVersion\":1,\"agentVersion\":\"" +
                     std::string(kAgentVersion) +
-                        "\",\"writableTargets\":[\"tdx\",\"ths\"],\"paired\":" +
-                        (Authorized(request) ? "true" : "false") +
+                        "\",\"writableTargets\":[\"tdx\",\"ths\"],\"writeAuthorized\":" +
+                        (WriteAuthorized(request) ? "true" : "false") +
                         "}",
                     request.origin);
   }
-  std::string origin;
-  {
-    std::lock_guard lock(activationMutex);
-    origin = allowedOrigin;
-  }
-  if (request.origin != origin)
-    return Response(403, "{\"error\":\"invalid_origin\"}", request.origin);
-  if (request.method == "POST" && request.path == "/v1/session/claim") {
-    const auto nonce = JsonString(request.body, "nonce");
-    std::lock_guard lock(activationMutex);
-    if (pendingNonce.empty() || nonce != pendingNonce)
-      return Response(401, "{\"error\":\"invalid_or_consumed_nonce\"}", origin);
-    pendingNonce.clear();
-    sessionToken = RandomToken();
-    sessionExpires = std::chrono::steady_clock::now() + std::chrono::minutes(10);
-    return Response(200,
-                    "{\"sessionToken\":\"" + sessionToken +
-                        "\",\"expiresIn\":600,\"writableTargets\":[\"tdx\",\"ths\"]}",
-                    origin);
-  }
-  if (!Authorized(request))
-    return Response(401, "{\"error\":\"local_session_required\"}", origin);
   if (request.method == "GET" && request.path == "/v1/state")
-    return Response(200, StateJson(), origin);
+    return Response(200, StateJson(), request.origin);
   if (request.method == "POST" && request.path == "/v1/initialize") {
-    const auto value = runtime.Init(JsonBool(request.body, "licenseAccepted"));
+    const auto accepted = JsonBool(request.body, "licenseAccepted");
+    const auto current = runtime.State();
+    const auto value = current.initialized && accepted
+                           ? onclaw_tdx_ths::InitResult{true, current.licenseState,
+                                                       current.message,
+                                                       current.runtimeHealth}
+                           : runtime.Init(accepted);
     return Response(200,
                     "{\"ok\":" + std::string(value.ok ? "true" : "false") +
                         ",\"licenseState\":\"" + JsonEscape(value.licenseState) +
                         "\",\"message\":\"" + JsonEscape(value.message) +
                         "\",\"runtimeHealth\":\"" +
                         JsonEscape(value.runtimeHealth) + "\"}",
-                    origin);
+                    request.origin);
   }
   if (request.method == "POST" && request.path == "/v1/set-code") {
+    if (!WriteAuthorized(request))
+      return Response(403, "{\"error\":\"origin_not_authorized\"}",
+                      request.origin);
+    const auto clientId = JsonString(request.body, "clientId");
+    const auto requestId = JsonString(request.body, "requestId");
+    if (!SafeIdentifier(clientId) || !SafeIdentifier(requestId))
+      return Response(400, "{\"error\":\"invalid_caller_identity\"}",
+                      request.origin);
     const auto value = runtime.Queue(JsonString(request.body, "target"),
-                                     JsonString(request.body, "code"));
+                                     JsonString(request.body, "code"), clientId,
+                                     requestId);
     return Response(200,
                     "{\"ok\":" + std::string(value.ok ? "true" : "false") +
                         ",\"accepted\":" + (value.accepted ? "true" : "false") +
                         ",\"status\":\"" + JsonEscape(value.status) +
                         "\",\"target\":\"" + JsonEscape(value.target) +
                         "\",\"code\":\"" + JsonEscape(value.code) +
+                        "\",\"clientId\":\"" + JsonEscape(value.clientId) +
+                        "\",\"requestId\":\"" + JsonEscape(value.requestId) +
                         "\",\"message\":\"" + JsonEscape(value.message) + "\"}",
-                    origin);
+                    request.origin);
   }
-  return Response(404, "{\"error\":\"not_found\"}", origin);
+  return Response(404, "{\"error\":\"not_found\"}", request.origin);
 }
 
 void HttpServer(std::promise<int> startup) {
@@ -479,6 +451,63 @@ bool VerifyRegistry() {
          std::wstring(value) == L"\"" + ExecutablePath() + L"\" \"%1\"";
 }
 
+bool ProbeHealth() {
+  WSADATA data{};
+  if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return false;
+  const auto client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (client == INVALID_SOCKET) {
+    WSACleanup();
+    return false;
+  }
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_port = htons(kPort);
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  bool healthy = false;
+  if (connect(client, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0) {
+    constexpr char request[] =
+        "GET /v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    send(client, request, static_cast<int>(sizeof(request) - 1), 0);
+    std::string response;
+    char buffer[2048];
+    int count = 0;
+    while ((count = recv(client, buffer, sizeof(buffer), 0)) > 0)
+      response.append(buffer, count);
+    healthy = response.find("HTTP/1.1 200") != std::string::npos &&
+              response.find("\"protocolVersion\":1") != std::string::npos;
+  }
+  closesocket(client);
+  WSACleanup();
+  return healthy;
+}
+
+bool WaitForHealthyAgent() {
+  for (int attempt = 0; attempt < 50; ++attempt) {
+    if (ProbeHealth()) return true;
+    Sleep(100);
+  }
+  return false;
+}
+
+int ShutdownExistingAgent() {
+  const auto window = FindWindowW(kWindowClass, nullptr);
+  if (!window) return 0;
+  DWORD processId = 0;
+  GetWindowThreadProcessId(window, &processId);
+  if (!processId) return 1;
+  const auto process = OpenProcess(SYNCHRONIZE | PROCESS_TERMINATE, FALSE, processId);
+  if (!process) return 1;
+  DWORD_PTR ignored = 0;
+  SendMessageTimeoutW(window, WM_CLOSE, 0, 0, SMTO_ABORTIFHUNG, 2000, &ignored);
+  auto stopped = WaitForSingleObject(process, 5000) == WAIT_OBJECT_0;
+  if (!stopped) {
+    stopped = TerminateProcess(process, 0) != FALSE &&
+              WaitForSingleObject(process, 2000) == WAIT_OBJECT_0;
+  }
+  CloseHandle(process);
+  return stopped ? 0 : 1;
+}
+
 LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam,
                                  LPARAM lParam) {
   if (message == WM_COPYDATA) {
@@ -505,6 +534,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, wchar_t*, int) {
     return SetRegistry(false) && VerifyRegistry() ? 0 : 1;
   if (argument == L"--unregister") return SetRegistry(true) ? 0 : 1;
   if (argument == L"--verify-registration") return VerifyRegistry() ? 0 : 2;
+  if (argument == L"--shutdown") return ShutdownExistingAgent();
+  if (argument == L"--verify-health") return WaitForHealthyAgent() ? 0 : 5;
 
   const auto mutex = CreateMutexW(nullptr, FALSE, kMutexName);
   if (GetLastError() == ERROR_ALREADY_EXISTS) {

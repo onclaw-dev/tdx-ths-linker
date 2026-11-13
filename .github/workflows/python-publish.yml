@@ -1,4 +1,4 @@
-name: Build and publish packages
+name: Build and publish package
 
 on:
   push:
@@ -11,9 +11,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  ELECTRON_VERSION: ${{ vars.ONCLAW_TDX_THS_ELECTRON_VERSION || '39.2.0' }}
-
 jobs:
   validate-release:
     name: Validate release tag and versions
@@ -23,13 +20,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Test release version validation
-        run: node --test scripts/validate-release-version.test.mjs
-      - name: Match tag to every package version
-        run: node scripts/validate-release-version.mjs "$GITHUB_REF_NAME"
+      - run: node --test scripts/validate-release-version.test.mjs
+      - run: node scripts/validate-release-version.mjs "$GITHUB_REF_NAME"
 
-  build-node:
-    name: Build .node package
+  build-agent:
+    name: Build canonical Agent and registered installer
     needs: validate-release
     runs-on: windows-latest
     steps:
@@ -37,44 +32,33 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Compile Electron Node-API module
-        shell: pwsh
-        env:
-          ONCLAW_TDX_THS_ELECTRON_VERSION: ${{ env.ELECTRON_VERSION }}
-        run: npm run build:native
-      - name: Smoke test native module in Node.js
-        shell: pwsh
-        run: node -e "const binding=require('./dist/native/win-x64/tdx-ths-linker.node'); for (const name of ['initRuntime','getRuntimeState','setRuntimeCode']) if (typeof binding[name] !== 'function') throw new Error('missing '+name)"
-      - name: Smoke test native module in Electron
-        shell: pwsh
-        run: npx --yes electron@$env:ELECTRON_VERSION scripts/smoke-native-electron.cjs dist/native/win-x64/tdx-ths-linker.node
-      - name: Package .node module
+      - name: Ensure NSIS is available
         shell: pwsh
         run: |
-          $stage = "dist/node-package"
-          $archive = "dist/tdx-ths-linker-node-electron-$env:ELECTRON_VERSION-win-x64.zip"
-          New-Item -ItemType Directory -Force $stage | Out-Null
-          Copy-Item "dist/native/win-x64/tdx-ths-linker.node" $stage
-          $hash = (Get-FileHash "$stage/tdx-ths-linker.node" -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  tdx-ths-linker.node" | Set-Content "$stage/SHA256SUMS.txt" -Encoding ascii
-          Compress-Archive -Path "$stage/*" -DestinationPath $archive
+          if (-not (Test-Path "C:\Program Files (x86)\NSIS\makensis.exe")) {
+            choco install nsis --no-progress -y
+          }
+      - name: Build Agent once and wrap registered installer
+        env:
+          ONCLAW_TDX_THS_RELEASE_UNSIGNED: "1"
+        run: npm run release:agent
+      - name: Validate installer registration lifecycle
+        shell: pwsh
+        run: >-
+          ./scripts/validate-agent-installer.ps1
+          ./release/agent/onclaw-tdx-ths-setup-win-x64.exe
       - uses: actions/upload-artifact@v4
         with:
-          name: node-release
-          path: dist/tdx-ths-linker-node-*.zip
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: node-binary
-          path: packages/client/native/win-x64/tdx-ths-linker.node
+          name: canonical-agent-release
+          path: |
+            release/agent/onclaw-tdx-ths-agent.exe
+            release/agent/onclaw-tdx-ths-setup-win-x64.exe
+            release/agent/SHA256SUMS.txt
           if-no-files-found: error
 
   build-npm:
-    name: Build npm package
-    needs: [validate-release, build-node]
+    name: Build npm package with canonical Agent
+    needs: [validate-release, build-agent]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -82,13 +66,17 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
       - uses: actions/download-artifact@v4
         with:
-          name: node-binary
-          path: packages/client/native/win-x64
-      - name: Build and test client
+          name: canonical-agent-release
+          path: release-input
+      - name: Inject canonical bare Agent
+        run: |
+          mkdir -p packages/client/agent/win-x64
+          cp release-input/onclaw-tdx-ths-agent.exe packages/client/agent/win-x64/
+          cp release-input/SHA256SUMS.txt packages/client/agent/win-x64/
+      - name: Build and test HTTP client
         run: |
           npm run test:client
           npm run test:examples
@@ -104,88 +92,67 @@ jobs:
           if-no-files-found: error
 
   build-python:
-    name: Build PyPI wheel
-    needs: validate-release
+    name: Build PyPI HTTP client with canonical Agent
+    needs: [validate-release, build-agent]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install build tools
-        run: python -m pip install --upgrade build pytest twine "packaging>=24.2"
-      - name: Run Python unit tests
-        env:
-          PYTHONPATH: python/src
-        run: python -m pytest python/tests
-      - name: Build wheel
-        run: python -m build --wheel
-      - name: Validate metadata
-        run: python -m twine check dist/*
-      - name: Validate wheel contents and clean install
+      - uses: actions/download-artifact@v4
+        with:
+          name: canonical-agent-release
+          path: release-input
+      - name: Inject canonical bare Agent
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force python/src/tdx_ths_linker/agent/win-x64 | Out-Null
+          Copy-Item release-input/onclaw-tdx-ths-agent.exe python/src/tdx_ths_linker/agent/win-x64/
+          Copy-Item release-input/SHA256SUMS.txt python/src/tdx_ths_linker/agent/win-x64/
+      - name: Test and build Python HTTP client
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade build pytest twine
+          $env:PYTHONPATH = "python/src"
+          python -m pytest python/tests
+          python -m build --wheel
+          python -m twine check dist/*.whl
           $wheel = Get-ChildItem dist/*.whl | Select-Object -First 1
-          python scripts/validate-python-wheel.py $wheel.FullName
+          python scripts/validate-python-wheel.py $wheel.FullName release-input/onclaw-tdx-ths-agent.exe
       - uses: actions/upload-artifact@v4
         with:
           name: python-dist
-          path: dist/*
+          path: dist/*.whl
           if-no-files-found: error
 
-  build-agent:
-    name: Build Web Agent installer
-    needs: validate-release
-    runs-on: windows-latest
+  publish-npm:
+    name: Publish npm package
+    needs: build-npm
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Ensure NSIS is available
-        shell: pwsh
+          registry-url: "https://registry.npmjs.org"
+      - run: npm install --global npm@^11.5.1
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-dist
+          path: dist/npm
+      - name: Publish exact tested npm package
+        shell: bash
         run: |
-          if (-not (Test-Path "C:\Program Files (x86)\NSIS\makensis.exe")) {
-            choco install nsis --no-progress -y
-          }
-      - name: Build Agent and installer
-        env:
-          ONCLAW_TDX_THS_RELEASE_UNSIGNED: "1"
-        run: npm run release:agent
-      - name: Validate installer registration lifecycle
-        shell: pwsh
-        run: >-
-          ./scripts/validate-agent-installer.ps1
-          ./release/agent/onclaw-tdx-ths-setup-win-x64.exe
-      - name: Stage installer release assets
-        shell: pwsh
-        run: |
-          $assets = "dist/agent-release-assets"
-          New-Item -ItemType Directory -Force $assets | Out-Null
-          Copy-Item "release/agent/onclaw-tdx-ths-setup-win-x64.exe" $assets
-          Copy-Item "release/agent/SHA256SUMS.txt" $assets
-      - uses: actions/upload-artifact@v4
-        with:
-          name: agent-installer-release
-          path: dist/agent-release-assets/*
-          if-no-files-found: error
-
-  build-skill:
-    name: Build Codex Skill package
-    needs: validate-release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Validate and package Skill
-        run: python scripts/package-skill.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: skill-release
-          path: dist/skills/tdx-ths-linker-skill-*.zip
-          if-no-files-found: error
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "tdx-ths-linker@$version" version >/dev/null 2>&1; then
+            echo "tdx-ths-linker@$version already exists; continuing partial release recovery"
+          else
+            npm publish dist/npm/*.tgz --access public --tag latest
+          fi
 
   publish-pypi:
     name: Publish PyPI package
@@ -203,59 +170,26 @@ jobs:
         with:
           skip-existing: true
 
-  publish-npm:
-    name: Publish npm package
-    needs: build-npm
-    runs-on: ubuntu-latest
-    environment: npm
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
-      - name: Install npm with Trusted Publishing support
-        run: npm install --global npm@^11.5.1
-      - uses: actions/download-artifact@v4
-        with:
-          name: npm-dist
-          path: dist/npm
-      - name: Publish exact tested npm package
-        shell: bash
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          if npm view "tdx-ths-linker@$version" version >/dev/null 2>&1; then
-            echo "tdx-ths-linker@$version already exists; continuing partial release recovery"
-          else
-            npm publish dist/npm/*.tgz --access public --tag latest
-          fi
-
-  publish-github:
-    name: Publish .node, installer, and Skill packages
-    needs: [build-node, build-agent, build-skill, publish-pypi, publish-npm]
+  publish-cloud:
+    name: Deploy registered Web installer and example
+    needs: [build-agent, publish-npm, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: node-release
+          name: canonical-agent-release
           path: release-assets
-      - uses: actions/download-artifact@v4
-        with:
-          name: agent-installer-release
-          path: release-assets
-      - uses: actions/download-artifact@v4
-        with:
-          name: skill-release
-          path: release-assets
-      - name: Create or update GitHub Release
+      - name: Create or update Web download release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          rm release-assets/onclaw-tdx-ths-agent.exe
+          sha256sum release-assets/onclaw-tdx-ths-setup-win-x64.exe > release-assets/SHA256SUMS.txt
+          cp examples/web-quickstart/index.html release-assets/onclaw-tdx-ths-web-example.html
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
           else

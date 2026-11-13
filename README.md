@@ -1,155 +1,157 @@
 <p align="center">
-  <img src="imgs/icon.png" width="128" height="128" alt="tdx-ths-linker icon">
+  <img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/icon.png" width="88" height="88" alt="TDX THS Linker 图标">
 </p>
 
-<h1 align="center">tdx-ths-linker</h1>
+<h1 align="center">TDX / THS Linker</h1>
 
 <p align="center">
-  支持 Web 网页、桌面应用、Skill、Harness 的通达信、同花顺代码联动模块
-</p>
-
-<p align="center">
-  <a href="examples/web-quickstart/README.md">查看 Web 网页端快速接入与效果预览</a>
+  Windows 通达信与同花顺本地联动服务
 </p>
 
 <p align="center">
-  <a href="examples/web-quickstart/README.md">
-    <img src="imgs/preview6.png" width="920" alt="tdx-ths-linker Web 网页端效果预览">
+  <a href="examples/web-quickstart/README.md">Web 快速接入</a>
+  ·
+  <a href="docs/protocol.md">本地协议</a>
+  ·
+  <a href="docs/architecture.md">架构说明</a>
+</p>
+
+<p align="center">
+  <a href="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview6.png">
+    <img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview6.png" width="1000" alt="网页、通达信与同花顺联动效果">
   </a>
 </p>
 
-> 为什么要有这个项目：因为我在使用deepseek harness做搜索时，遇见使用工作流返回的代码组，想一一在同花顺中快速翻阅，手打的话，非常慢。因为人的记忆有限，所以就有了通过deepseek flash模型查询目标类型的代码，然后鼠标点点就可以快速完成预览的需求。因为主观看K线，还是主流的交易软件最直观。
-> 所以就用c++实现了联动“同花顺”“通达信”联动。但又很想在不同端复用，于是就做了全场景适配，`tdx-ths-linker` 通过一套共享 C++ runtime，为 **Web、Node/Electron、Python 和 Windows 原生程序**提供统一的股票代码读取与设置能力。
-> 当前仅支持 Windows x64。
+## 来自开发者的话
 
+在使用 DeepSeek Harness 这类 AI 应用时，经常会看到一段值得验证的选股或分析逻辑，很想马上预览它对应的 K 线特征。但把代码一个个复制出来、再逐个输入交易软件，过程实在繁琐。如果能够让 AI 或工具提交代码，自己只用鼠标点一点，就能在熟悉的交易软件里快速查看结果，整个验证过程会自然很多。
 
-## 支持的接入方式
+从主观观察 K 线的效率来说，通达信与同花顺这类主流交易软件仍然有成熟、顺手的预览体验。因此，我先用 C++ 实现了通达信与同花顺之间的代码读取、设置和联动。完成桌面端联动后，又希望这套能力能够被不同技术栈直接复用：如果网页只需引入一个模块，就能获得相同的联动能力，那么 AI 应用、研究工具和临时页面都可以更快地把逻辑变成可观察的结果。
 
-| 渠道 | 产物 | 接入方式 | 是否需要 Agent |
-| --- | --- | --- | --- |
-| Web | `tdx-ths-linker` npm 包 + Agent 安装包 | 自定义协议激活与 loopback HTTP | 是 |
-| Node/Electron | `tdx-ths-linker.node` | Node-API | 否 |
-| Python | `tdx-ths-linker` wheel | `ctypes` 加载内置 DLL | 否 |
-| Codex / 自动化 | `tdx-ths-linker` Skill + CLI | JSON 命令驱动 | 否 |
-| C/C++ | `onclaw-tdx-ths.dll` | 稳定 C ABI | 否 |
+于是有了 TDX / THS Linker 的全场景适配。项目通过一套共享 C++ runtime 和单实例 Agent，为 Web、Node / Electron、Python、CLI、Harness，以及能够访问本机 HTTP 服务的 Windows 原生程序，提供统一的通达信、同花顺股票代码读取与设置能力。不同调用端不再分别持有桌面软件资源，而是共同复用一个本地联动服务。
 
-所有渠道复用相同的目标发现、状态读取和代码设置逻辑。TDX 与 THS 均支持读取和写入。
+TDX / THS Linker 是开源、免费的本地工具，不提供行情数据、证券推荐或交易能力。服务仅监听 `127.0.0.1`；npm 与 PyPI 不安装软件、不写注册表；只有用户主动运行 Web 安装包时，才会安装固定路径 Agent 并注册浏览器唤醒协议。
 
-## 工作方式
+## 联动设计说明
+
+项目只构建一份 `onclaw-tdx-ths-agent.exe`。npm、PyPI 与 Web 安装包使用完全相同的 Agent 二进制，但交付方式不同：
 
 ```text
-Web ── npm client ── onclaw-tdx-ths:// ── Agent ──┐
-                                                   │
-Electron/Harness ── tdx-ths-linker.node ──────────┤
-Python ── ctypes ── onclaw-tdx-ths.dll ───────────┼── shared C++ runtime ── TDX / THS
-Codex / Harness ── Skill ── npm JSON CLI ─────────┤
-C/C++ ── C ABI ── onclaw-tdx-ths.dll ─────────────┘
+Python / npm ── 内嵌裸 Agent ──┐
+                              │
+Web ── 可见安装包 + 协议注册 ──┼── http://127.0.0.1:17654
+                              │
+                              ▼
+                     单一 Agent 服务进程
+                     ├─ 状态读取与写入
+                     ├─ 调用方请求去重
+                     ├─ TDX / THS 独立调度
+                     ├─ 300 ms 首尾合并
+                     └─ 活跃唤醒与闲置释放
+                              │
+                              ▼
+                         TDX / THS
 ```
 
-详细设计参见 [架构说明](https://github.com/onclaw-dev/tdx-ths-linker/blob/main/docs/architecture.md)。
+- Python 与 npm 首先复用已经健康运行的 Agent。
+- 如果 Web Agent 已安装但没有运行，两端优先启动固定安装路径中的 Agent。
+- 如果尚未安装 Web Agent，两端直接启动各自包内的裸 Agent，不执行安装程序。
+- Agent 使用固定端口和用户会话级单实例保护，保证同一时间只有一个服务进程持有联动资源。
+- Web 安装包会停止此前由 Python 或 npm 启动的 Agent，安装同一二进制、注册 `onclaw-tdx-ths://`，再启动固定路径服务。
+- 高频代码变化按目标端分别合并：立即处理第一个请求，并在 300 ms 窗口结束时至多处理最后一个不同代码。
 
-## 快速开始
+当前支持 Windows x64。TDX 与 THS 是否可用取决于对应桌面程序是否正在运行以及当前版本是否受支持。
 
-### Web
-
-```bash
-npm install tdx-ths-linker
-```
-
-```ts
-import { createWebLinker } from "tdx-ths-linker";
-
-const linker = createWebLinker();
-
-// 必须在用户点击处理函数内调用，协议唤醒会同步发生。
-const connection = await linker.connect({ licenseAccepted: true });
-if (connection.status === "installer_required") {
-  location.href = connection.installerUrl;
-} else if (!connection.ok) {
-  throw new Error(connection.message);
-}
-
-await linker.client.setCode("tdx", "600825");
-await linker.client.setCode("ths", "600825");
-```
-
-Web 客户端只连接 `127.0.0.1:17654`。正式 GitHub Release 只提供会注册 `onclaw-tdx-ths://` 的安装包，不把内部 Agent EXE 作为独立产品发布。完整的无登录 HTML 示例、自动联动和安装恢复流程参见 [Web 快速接入](https://github.com/onclaw-dev/tdx-ths-linker/blob/main/docs/web-integration.md)。
-
-### Node / Electron
-
-```ts
-import { createRequire } from "node:module";
-import { createNodeClient } from "tdx-ths-linker";
-
-const require = createRequire(import.meta.url);
-const native = require("./native/win-x64/tdx-ths-linker.node");
-const linker = createNodeClient(native);
-
-await linker.initialize(true);
-const state = await linker.getState();
-await linker.setCode("tdx", "600825");
-await linker.setCode("ths", "600825");
-```
-
-Windows x64 的 npm 包已内置 `tdx-ths-linker.node`，Node/Electron 入口可从 `tdx-ths-linker/native` 加载；`TDX_THS_LINKER_NODE_PATH` 可在本地开发时覆盖二进制路径。发布工作流仍会额外附加独立 `.node` ZIP，供非 npm 宿主使用。
+## 安装方式
 
 ### Python
 
+通过 PyPI 安装：
+
 ```powershell
 py -m pip install tdx-ths-linker
+tdx-ths-linker-python ensure-agent
+tdx-ths-linker-python --json --accept-license state
 ```
+
+PyPI wheel 内嵌裸 Agent。首次使用会复用现有服务，或者直接启动包内 Agent；不会显示安装界面，也不会写入注册表。
+
+Python API：
 
 ```python
 from tdx_ths_linker import Client
 
-with Client(license_accepted=True) as linker:
-    state = linker.get_state()
+with Client(license_accepted=True) as client:
+    state = client.get_state()
     print(state.tdx.code, state.ths.code)
 
-    linker.set_code("tdx", "600825")
-    linker.set_code("ths", "600825")
+    # 明确指定目标端和六位代码
+    result = client.set_code("tdx", "600825")
+    print(result.accepted)
 ```
 
-Python wheel 内置 `onclaw-tdx-ths.dll`，不启动 Agent，也不使用本地 HTTP。`set_code()` 返回命令是否已接受；应继续轮询 `get_state()` 确认目标软件已完成切换。
+更多示例见 [Python Agent HTTP 示例](examples/python/README.md)。
 
-### CLI 驱动与 Codex Skill
+### npm
 
-Harness、Codex 和进程自动化统一使用 npm 包内置的 JSON CLI：
+通过 npm 安装：
 
 ```powershell
-npx --no-install tdx-ths-linker --json --accept-license doctor
+npm install tdx-ths-linker
 npx --no-install tdx-ths-linker --json --accept-license state
+```
+
+npm 包内嵌相同的裸 Agent，不包含 `postinstall` 安装流程，也不会注册浏览器协议。
+
+Node / Electron API：
+
+```js
+import { createAgentClient } from "tdx-ths-linker";
+import { ensureAgent } from "tdx-ths-linker/runtime";
+
+await ensureAgent();
+
+const client = createAgentClient({ clientId: "my-app" });
+await client.initialize(true);
+
+const state = await client.getState();
+console.log(state.tdx.code, state.ths.code);
+```
+
+CLI 设置示例：
+
+```powershell
 npx --no-install tdx-ths-linker --json --accept-license set 600825 --target tdx --wait
 npx --no-install tdx-ths-linker --json --accept-license set 600825 --target ths --wait
 ```
 
-Codex Skill 位于 `skills/tdx-ths-linker`，也会作为独立 ZIP 附加到 GitHub Release。Skill 不包含二进制文件，只调用项目中已安装的 npm CLI。安装和 JSON 合约参见 [CLI 驱动与 Skill](https://github.com/onclaw-dev/tdx-ths-linker/blob/main/docs/driver.md)。
+更多说明见 [npm 客户端文档](packages/client/README.md) 和 [CLI / Harness 驱动说明](docs/driver.md)。
 
-## 文档
+### Web
 
-- [Web HTML 示例](https://github.com/onclaw-dev/tdx-ths-linker/tree/main/examples/web-quickstart)
-- [Python 示例](https://github.com/onclaw-dev/tdx-ths-linker/tree/main/examples/python)
-- [Electron 示例](https://github.com/onclaw-dev/tdx-ths-linker/tree/main/examples/electron)
-- [DeepSeek Harness 示例](https://github.com/onclaw-dev/tdx-ths-linker/tree/main/examples/deepseek-harness)
-- [Skill 示例](https://github.com/onclaw-dev/tdx-ths-linker/tree/main/examples/skill)
-- [架构与发布产物](https://github.com/onclaw-dev/tdx-ths-linker/blob/main/docs/architecture.md)
-- [本地 Agent 协议](https://github.com/onclaw-dev/tdx-ths-linker/blob/main/docs/protocol.md)
-- [开发、测试与发布](https://github.com/onclaw-dev/tdx-ths-linker/blob/main/docs/development.md)
-- [CLI 驱动与 Codex Skill](https://github.com/onclaw-dev/tdx-ths-linker/blob/main/docs/driver.md)
-- [npm 客户端说明](https://github.com/onclaw-dev/tdx-ths-linker/blob/main/packages/client/README.md)
-- [Web 快速接入](https://github.com/onclaw-dev/tdx-ths-linker/blob/main/docs/web-integration.md)
+浏览器不能直接启动包内裸 Agent，也不能自行写入 Windows 注册表。Web 联动需要用户下载并运行带注册能力的安装包：
 
-## 安全与兼容性
+1. 下载 `onclaw-tdx-ths-setup-win-x64.exe`。
+2. 在可见安装界面中确认许可和安装位置。
+3. 安装包接管当前 Agent，注册 `onclaw-tdx-ths://` 并启动服务。
+4. 网页由用户点击唤醒协议，为当前精确 Origin 授予进程期写权限。
+5. 网页通过 `http://127.0.0.1:17654/v1/*` 读取状态和提交代码。
 
-- Agent 只监听 `127.0.0.1:17654`，不会绑定公网接口。
-- Web 调用必须经过一次性 nonce、自定义协议激活、精确 Origin 和短期 bearer token 配对。
-- THS 写入涉及目标进程内存操作；发布前必须针对目标软件版本完成真实兼容测试。
-- fallback offset 不是长期稳定接口，不应在未验证的软件版本上假定可用。
-- 正式发布的 EXE、DLL 和 `.node` 应进行 Authenticode 签名并记录 SHA-256。
-- 进程内存行为可能触发安全软件启发式检测，应使用透明构建、代码签名和误报申诉流程。
+<p align="center">
+  <a href="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview1.png"><img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview1.png" width="145" alt="下载 Web Agent 安装包"></a>
+  <a href="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview2.png"><img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview2.png" width="145" alt="允许安装程序运行"></a>
+  <a href="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview3.png"><img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview3.png" width="145" alt="完成 Web Agent 安装"></a>
+  <a href="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview4.png"><img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview4.png" width="145" alt="浏览器唤醒 Agent"></a>
+  <a href="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview5.png"><img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview5.png" width="145" alt="网页连接 Agent"></a>
+  <a href="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview6.png"><img src="https://raw.githubusercontent.com/onclaw-dev/tdx-ths-linker/main/imgs/preview6.png" width="145" alt="网页、TDX 与 THS 联动结果"></a>
+</p>
 
-安全问题请避免公开披露可利用细节，优先通过仓库的私密安全报告渠道提交。
+安装包下载地址：
 
-## 许可证
+<https://fin.onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe>
 
-本项目采用 [GNU General Public License v3.0 only](https://github.com/onclaw-dev/tdx-ths-linker/blob/main/LICENSE)。分发本项目或其修改版本时，必须遵守 GPLv3 对应的源码提供义务。
+完整接入流程、Origin 授权规则、Python `requests` 示例和 Web 页面代码见 [Web 快速接入文档](examples/web-quickstart/README.md)。
+
+## License
+
+GPL-3.0-only

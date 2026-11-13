@@ -4,37 +4,39 @@ import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("Python example is read-only by default and requires explicit write inputs", async () => {
-  const [source, readme] = await Promise.all([
+test("Python example uses the Agent HTTP client without a native binding", async () => {
+  const [source, readme, client] = await Promise.all([
     read("examples/python/basic.py"),
     read("examples/python/README.md"),
+    read("python/src/tdx_ths_linker/client.py"),
   ]);
   assert.match(source, /from tdx_ths_linker import Client/);
-  assert.match(source, /if not args\.accept_license/);
-  assert.match(source, /if not args\.code:/);
-  assert.match(source, /--code and --target must be supplied together/);
-  assert.match(source, /client\.set_code\(target, args\.code\)/);
-  assert.match(readme, /--target tdx/);
-  assert.match(readme, /--target ths/);
+  assert.match(readme, /tdx-ths-linker-python ensure-agent/);
+  assert.match(readme, /裸 Agent/);
+  assert.doesNotMatch(readme, /内嵌安装程序|setup-win-x64/);
+  assert.match(client, /\/v1\/state/);
+  assert.doesNotMatch(client, /ctypes|\.dll|_native/);
 });
 
-test("Electron example isolates the native module in its main process", async () => {
+test("Electron example isolates Agent HTTP access in its main process", async () => {
   const [main, preload, html, manifest] = await Promise.all([
     read("examples/electron/main.mjs"),
     read("examples/electron/preload.cjs"),
     read("examples/electron/index.html"),
     read("examples/electron/package.json"),
   ]);
-  assert.match(main, /createNodeClient/);
+  assert.match(main, /createAgentClient/);
+  assert.match(main, /ensureAgent/);
+  assert.match(main, /tdx-ths-linker\/runtime/);
   assert.match(main, /createStockLinkRuntime/);
-  assert.match(main, /require\(nativePath\)/);
+  assert.doesNotMatch(main, /\.node|createRequire/);
   assert.match(main, /contextIsolation: true/);
   assert.match(main, /nodeIntegration: false/);
   assert.match(main, /sandbox: true/);
   assert.match(preload, /contextBridge\.exposeInMainWorld/);
   assert.doesNotMatch(preload, /tdx-ths-linker\.node/);
   assert.doesNotMatch(html, /require\s*\(/);
-  assert.equal(JSON.parse(manifest).dependencies["tdx-ths-linker"], "0.1.2");
+  assert.equal(JSON.parse(manifest).dependencies["tdx-ths-linker"], "0.1.3");
 });
 
 test("DeepSeek Harness example uses a portable Skill and the npm JSON CLI", async () => {
@@ -46,6 +48,7 @@ test("DeepSeek Harness example uses a portable Skill and the npm JSON CLI", asyn
   ]);
   assert.match(readme, /\.agents\\skills/);
   assert.match(readme, /npm install tdx-ths-linker/);
+  assert.match(readme, /npm 安装不运行 Agent 安装程序/);
   assert.match(readme, /npx --no-install tdx-ths-linker --json --accept-license/);
   assert.match(readme, /--target tdx --wait/);
   assert.match(readme, /--target ths --wait/);

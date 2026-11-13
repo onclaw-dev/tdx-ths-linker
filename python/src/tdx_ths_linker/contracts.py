@@ -23,6 +23,8 @@ class EndpointState:
 class RuntimeState:
     initialized: bool
     supported: bool
+    active: bool
+    last_activity_at: int
     runtime_health: str
     license_state: str
     message: str
@@ -45,4 +47,6 @@ class CommandResult:
     status: str
     target: str
     code: str
+    client_id: str
+    request_id: str
     message: str

@@ -1,14 +1,10 @@
-import { createRequire } from "node:module";
 import { join } from "node:path";
 
 import { app, BrowserWindow, ipcMain } from "electron";
-import { createNodeClient, createStockLinkRuntime } from "tdx-ths-linker";
+import { createAgentClient, createStockLinkRuntime } from "tdx-ths-linker";
+import { ensureAgent } from "tdx-ths-linker/runtime";
 
-const require = createRequire(import.meta.url);
-const nativePath = process.env.TDX_THS_LINKER_NODE_PATH
-  ?? join(app.getAppPath(), "native", "win-x64", "tdx-ths-linker.node");
-const native = require(nativePath);
-const client = createNodeClient(native);
+const client = createAgentClient({ clientId: `electron-${process.pid}` });
 let window;
 
 const runtime = createStockLinkRuntime({
@@ -42,7 +38,8 @@ ipcMain.handle("linker:stop", () => {
   return true;
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await ensureAgent();
   window = new BrowserWindow({
     width: 720,
     height: 640,

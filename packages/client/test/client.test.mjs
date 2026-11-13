@@ -1,29 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildActivationUrl, createNodeClient } from "../dist/index.mjs";
+import { buildActivationUrl, createAgentClient } from "../dist/index.mjs";
 
-test("activation URL carries only protocol, nonce, and origin", () => {
+test("activation URL carries only protocol v1 and origin", () => {
   assert.equal(
-    buildActivationUrl("https://example.com", "a".repeat(64)),
-    `onclaw-tdx-ths://activate?v=1&nonce=${"a".repeat(64)}&origin=https%3A%2F%2Fexample.com`,
+    buildActivationUrl("https://example.com"),
+    "onclaw-tdx-ths://activate?v=1&origin=https%3A%2F%2Fexample.com",
   );
 });
 
-test("node client delegates to the native boundary", async () => {
+test("local Node client uses the Origin-less Agent HTTP boundary", async () => {
   const calls = [];
-  const node = {
-    initRuntime: (value) => (calls.push(["init", value]), { ok: true }),
-    getRuntimeState: () => (calls.push(["state"]), { initialized: true }),
-    setRuntimeCode: (target, code) => (calls.push(["code", target, code]), { ok: true }),
+  const request = async (url, init) => {
+    calls.push([url, init?.method ?? "GET", init?.body]);
+    return { ok: true, json: async () => ({ ok: true }) };
   };
-  const client = createNodeClient(node);
+  const client = createAgentClient({ fetch: request, clientId: "node-test" });
+  assert.equal(client.transport, "agent");
+  assert.equal(client.prepareConnection, undefined);
   await client.initialize(true);
   await client.getState();
   await client.setCode("tdx", "600000");
-  assert.deepEqual(calls, [
-    ["init", { licenseAccepted: true }],
-    ["state"],
-    ["code", "tdx", "600000"],
-  ]);
+  assert.equal(calls[0][0], "http://127.0.0.1:17654/v1/initialize");
+  assert.equal(calls[1][0], "http://127.0.0.1:17654/v1/state");
+  assert.equal(calls[2][0], "http://127.0.0.1:17654/v1/set-code");
+  assert.match(calls[2][2], /"clientId":"node-test"/);
 });

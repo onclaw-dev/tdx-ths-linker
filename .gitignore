@@ -9,6 +9,8 @@ node_modules/
 *.pdb
 *.node
 *.exe
+!packages/client/agent/win-x64/onclaw-tdx-ths-agent.exe
+!python/src/tdx_ths_linker/agent/win-x64/onclaw-tdx-ths-agent.exe
 *.msi
 *.zip
 *.pyc

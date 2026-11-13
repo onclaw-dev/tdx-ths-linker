@@ -1,66 +1,41 @@
-import argparse
-import os
-import subprocess
+import hashlib
 import sys
-import tempfile
-import venv
 import zipfile
 from pathlib import Path
 
+wheel = Path(sys.argv[1])
+canonical = Path(sys.argv[2]) if len(sys.argv) > 2 else None
+if not wheel.name.endswith("-py3-none-win_amd64.whl"):
+    raise SystemExit(f"unexpected wheel tag: {wheel.name}")
 
-def require(condition: bool, message: str) -> None:
-    if not condition:
-        raise SystemExit(message)
+agent_name = "tdx_ths_linker/agent/win-x64/onclaw-tdx-ths-agent.exe"
+manifest_name = "tdx_ths_linker/agent/win-x64/SHA256SUMS.txt"
+with zipfile.ZipFile(wheel) as archive:
+    names = set(archive.namelist())
+    if agent_name not in names or manifest_name not in names:
+        raise SystemExit("wheel is missing canonical Agent assets")
+    if any(name.lower().endswith("setup-win-x64.exe") for name in names):
+        raise SystemExit("wheel must not contain the registered Web installer")
+    forbidden = [name for name in names if name.lower().endswith((".dll", ".pyd", ".node"))]
+    if forbidden:
+        raise SystemExit(f"wheel contains obsolete native runtimes: {forbidden}")
+    agent = archive.read(agent_name)
+    manifest = archive.read(manifest_name).decode("ascii")
+    metadata_name = next(name for name in names if name.endswith(".dist-info/METADATA"))
+    metadata = archive.read(metadata_name).decode("utf-8").replace("\r\n", "\n")
 
+metadata_body = metadata.partition("\n\n")[2].strip()
+root_readme = Path("README.md").read_text(encoding="utf-8").replace("\r\n", "\n").strip()
+if metadata_body != root_readme:
+    raise SystemExit("PyPI wheel description must be identical to the root README.md")
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Validate the tdx-ths-linker Windows wheel")
-    parser.add_argument("wheel", type=Path)
-    parser.add_argument("--skip-install", action="store_true")
-    args = parser.parse_args()
-    wheel = args.wheel.resolve()
-    require(wheel.is_file(), f"Wheel does not exist: {wheel}")
-    require(wheel.name.endswith("-py3-none-win_amd64.whl"), f"Unexpected wheel tag: {wheel.name}")
-
-    with zipfile.ZipFile(wheel) as archive:
-        names = set(archive.namelist())
-        require("tdx_ths_linker/_native/onclaw-tdx-ths.dll" in names, "Wheel is missing native DLL")
-        require("tdx_ths_linker/py.typed" in names, "Wheel is missing py.typed")
-        metadata_name = next((name for name in names if name.endswith(".dist-info/METADATA")), None)
-        require(metadata_name is not None, "Wheel is missing METADATA")
-        metadata = archive.read(metadata_name).decode("utf-8")
-        require("Name: tdx-ths-linker" in metadata, "Unexpected distribution name")
-        require(
-            "License-Expression: GPL-3.0-only" in metadata,
-            "Wheel is missing the SPDX license expression",
-        )
-        require(any(name.endswith(".dist-info/licenses/LICENSE") for name in names), "Missing LICENSE")
-
-    if args.skip_install:
-        return
-    require(os.name == "nt", "Clean native-load validation requires Windows")
-    with tempfile.TemporaryDirectory(prefix="tdx-ths-linker-wheel-") as directory:
-        environment = Path(directory) / "venv"
-        venv.EnvBuilder(with_pip=True).create(environment)
-        python = environment / "Scripts" / "python.exe"
-        subprocess.run(
-            [str(python), "-m", "pip", "install", "--no-index", "--no-deps", str(wheel)],
-            check=True,
-        )
-        subprocess.run(
-            [
-                str(python),
-                "-c",
-                "from tdx_ths_linker._native import NativeBinding; "
-                "binding = NativeBinding(); assert binding.abi_version == 1",
-            ],
-            check=True,
-        )
-        command = environment / "Scripts" / "tdx-ths-linker.exe"
-        require(command.is_file(), "Installed wheel is missing the tdx-ths-linker console command")
-        subprocess.run([str(command), "--help"], check=True)
-        subprocess.run([str(python), "-m", "tdx_ths_linker", "--help"], check=True)
-
-
-if __name__ == "__main__":
-    main()
+expected = next(
+    (line.split()[0] for line in manifest.splitlines() if line.split()[-1] == Path(agent_name).name),
+    None,
+)
+actual = hashlib.sha256(agent).hexdigest()
+if not expected or actual.lower() != expected.lower():
+    raise SystemExit("wheel Agent checksum mismatch")
+if canonical and hashlib.sha256(canonical.read_bytes()).hexdigest() != actual:
+    raise SystemExit("wheel Agent differs from canonical bare release artifact")
+print(f"validated {wheel.name}: {actual}; root README reused")

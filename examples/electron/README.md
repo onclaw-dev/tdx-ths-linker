@@ -1,43 +1,30 @@
-# Electron 快速接入
+# Electron Agent HTTP 示例
 
 ## 安装指令
 
 ```powershell
 cd examples/electron
 npm install
+npm start
 ```
 
-将匹配 Electron 39.2.0、Windows x64 的 `tdx-ths-linker.node` 放到 `native/win-x64/tdx-ths-linker.node`，或用 `TDX_THS_LINKER_NODE_PATH` 指向本地编译文件。renderer 不直接加载原生模块。
+npm 包内嵌裸 Windows Agent；主进程使用 `ensureAgent` 复用或直接启动单实例服务，renderer 只通过 context-isolated preload API 调用。该流程不安装软件、不修改注册表。
 
 ## 测试指令
 
 ```powershell
-npm start
+npm run test:examples
 ```
 
-在界面中依次：
-
-1. 接受许可并初始化。
-2. 读取状态，确认 TDX、THS 均可用。
-3. 输入明确的六位测试代码，点击“设置 TDX”，再读取确认。
-4. 点击“设置 THS”，再读取确认。
-5. 最终读取，确认两端代码一致。
-
-自动验收通过 Electron headless runner 加载同一 `.node` 并执行相同顺序。
+示例不加载 `.node`，Electron、CLI 和网页请求进入同一个 Agent 调度器。
 
 ## 测试结果返回示例
 
-以下仅为返回格式示例：
-
 ```json
 {
-  "channel": "electron",
-  "status": "passed",
-  "reads": { "tdx": true, "ths": true },
-  "writes": {
-    "tdx": { "accepted": true, "confirmed": true },
-    "ths": { "accepted": true, "confirmed": true }
-  },
-  "finalCodesMatch": true
+  "channel": "electron-agent-http",
+  "agentReached": true,
+  "tdxAvailable": true,
+  "thsAvailable": true
 }
 ```

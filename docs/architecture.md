@@ -1,69 +1,52 @@
 # 架构与发布产物
 
-## 设计目标
+## 单一运行时
 
-项目只维护一套兼容性敏感的 C++ runtime，并通过不同边界提供给 Web、Node/Electron、Python 与原生调用方。目标发现、代码读取、写入队列和状态模型不会在各语言中重复实现。
-
-## 组件关系
+Windows Agent 是唯一允许访问 TDX/THS 进程的公共运行时。网页、Node、Electron、Python、CLI 和 Harness 都通过 `http://127.0.0.1:17654` 调用同一个 Agent。
 
 ```text
-                       ┌──────────────────────────┐
-Web / browser ────────▶│ Windows Agent            │
-  custom protocol      │ loopback HTTP + pairing  │
-                       └────────────┬─────────────┘
-                                    │
-Electron / Node ── Node-API ────────┤
-Python ─────────── ctypes + C ABI ──┤
-Codex / Harness ── Skill + CLI ─────┤
-C / C++ ────────── C ABI ───────────┤
-                                    ▼
-                       ┌──────────────────────────┐
-                       │ shared C++ runtime       │
-                       │ discovery / read / write │
-                       └────────────┬─────────────┘
-                                    ▼
-                               TDX / THS
+Web / Node / Electron / Python / CLI / Harness
+                  |
+          loopback HTTP
+                  |
+         Windows Agent EXE
+         - 全局状态快照
+         - 请求去重
+         - TDX/THS 独立首尾合并
+         - 活跃唤醒与闲置释放
+                  |
+              TDX / THS
 ```
 
-## 源码目录
+`native/core` 只静态链接进 Agent 和原生测试，不再提供 Node-API、C ABI 或 Python 原生运行时。
+
+## 目录职责
 
 | 目录 | 职责 |
 | --- | --- |
-| `native/core` | 共享 runtime、目标发现与读写逻辑 |
-| `native/c-api` | 稳定的 C ABI 与 ABI smoke test |
-| `native/node` | Node-API 边界，输出 `tdx-ths-linker.node` |
-| `native/agent` | Web Agent、loopback HTTP 和自定义协议注册 |
-| `packages/client` | npm Web/Node transport 与 TypeScript 类型 |
-| `python` | Python `ctypes` 客户端及测试 |
-| `skills/tdx-ths-linker` | Codex Skill、驱动合约和代理操作边界 |
-| `setup` | NSIS 安装器 |
-| `scripts` | 本机构建、发布和 wheel 校验脚本 |
-| `examples` | Web、Python、Electron 与 DeepSeek Harness 最小接入示例 |
+| `native/core` | Agent 内部的目标发现、读取、写入与调度 |
+| `native/agent` | 单实例 Agent、loopback HTTP 与自定义协议 |
+| `packages/client` | HTTP 客户端、CLI、launcher 和内嵌裸 Agent |
+| `python` | PyPI HTTP 客户端、CLI、launcher 和内嵌裸 Agent |
+| `setup` | 用户级 NSIS 安装程序 |
+| `skills/tdx-ths-linker` | Harness/Codex 操作边界 |
 
-## 发布产物
+## 单一 Agent、三种封装
 
-| 发布渠道 | 主要内容 |
-| --- | --- |
-| npm | JavaScript transport、类型声明和 npm README |
-| PyPI | Python 包、类型标记和 `onclaw-tdx-ths.dll` |
-| GitHub Release `.node` 包 | Electron 目标版本对应的 `tdx-ths-linker.node` 与 SHA-256 |
-| GitHub Release Web 安装包 | `onclaw-tdx-ths-setup-win-x64.exe` 与 SHA-256，固定安装并注册 Web 唤起协议 |
-| GitHub Release Skill 包 | Codex Skill 指令、UI 元数据和 CLI 合约 |
+发布流程只构建一次 `onclaw-tdx-ths-agent.exe`。相同字节和校验值进入 npm、PyPI wheel 与 Web 注册安装包：
 
-只有新的 `v*` 标签 push 会触发统一发布工作流。工作流先验证标签与 npm、PyPI、CMake、Agent 版本完全一致，再构建全部产物；普通 pull request 和 `main` push 不运行该发布 workflow。
+```text
+canonical bare Agent
+   |-- npm package: agent/win-x64/
+   |-- PyPI wheel: tdx_ths_linker/agent/win-x64/
+   `-- registered Web installer -> Web download release
+```
 
-## 图标资源
+npm 与 PyPI 不安装、不注册，直接运行包内 Agent。Web 安装包会停止当前 Agent，将同一二进制放到 `%LOCALAPPDATA%\OnclawTdxThs`，注册 `onclaw-tdx-ths://` 并启动固定路径服务。此后 npm/PyPI 优先复用该安装版本。
 
-- `imgs/icon.png`：GitHub、PyPI 和 npm 文档展示。
-- `imgs/icon.ico`：嵌入 Agent EXE，并作为 NSIS 安装器与卸载器图标。
+## 安全边界
 
-图标文件是单一来源。文档和构建脚本应引用根目录资源，不应在子目录维护副本。
-
-## 平台边界
-
-- 当前仅支持 Windows x64。
-- Python wheel 使用稳定 C ABI，不绑定具体 CPython 扩展 ABI。
-- `.node` 使用 Node-API，但仍按目标 Electron 版本构建，以包含正确的 Windows/Electron 装载配置。
-- Web Agent 是唯一需要安装与自定义协议注册的渠道。
-- Web 场景只发布安装包；原始 Agent EXE 仅作为安装器输入和本地开发输出。
-- Codex Skill 不携带 native 二进制，只调用 PyPI 包安装的 CLI 驱动。
+- Agent 只监听 `127.0.0.1`。
+- 浏览器写入需要自定义协议激活后的精确 Origin 授权。
+- 无 Origin 的本地 CLI/Node/Harness 请求按当前用户本地信任边界处理。
+- 所有调用共享一个 target-global 调度器，不会创建互相竞争的原生 Runtime。

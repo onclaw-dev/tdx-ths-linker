@@ -3,53 +3,53 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const workflow = await readFile(new URL("../.github/workflows/python-publish.yml", import.meta.url), "utf8");
-const installerValidation = await readFile(
-  new URL("../scripts/validate-agent-installer.ps1", import.meta.url),
-  "utf8",
-);
+const installerValidation = await readFile(new URL("../scripts/validate-agent-installer.ps1", import.meta.url), "utf8");
+const installerScript = await readFile(new URL("../setup/onclaw-tdx-ths-setup.nsi", import.meta.url), "utf8");
+const npmPackage = await readFile(new URL("../packages/client/package.json", import.meta.url), "utf8");
 
 test("release workflow is triggered only by v-prefixed tag pushes", () => {
   assert.match(workflow, /on:\s*\n\s+push:\s*\n\s+tags:\s*\["v\*"\]/);
   assert.doesNotMatch(workflow, /pull_request:|workflow_dispatch:|branches:/);
 });
 
-test("all release builds depend on version validation", () => {
-  for (const job of ["build-node", "build-python", "build-agent", "build-skill"]) {
-    assert.match(workflow, new RegExp(`\\n  ${job}:[\\s\\S]*?\\n    needs: validate-release`));
-  }
-  assert.match(workflow, /build-npm:[\s\S]*?needs: \[validate-release, build-node\]/);
-  assert.match(workflow, /node scripts\/validate-release-version\.mjs "\$GITHUB_REF_NAME"/);
+test("one canonical bare Agent feeds npm, PyPI, and the registered Web installer", () => {
+  assert.match(workflow, /build-agent:[\s\S]*?name: canonical-agent-release/);
+  assert.match(workflow, /release\/agent\/onclaw-tdx-ths-agent\.exe/);
+  assert.match(workflow, /build-npm:[\s\S]*?needs: \[validate-release, build-agent\]/);
+  assert.match(workflow, /Inject canonical bare Agent[\s\S]*?packages\/client\/agent\/win-x64/);
+  assert.match(workflow, /build-python:[\s\S]*?needs: \[validate-release, build-agent\]/);
+  assert.match(workflow, /Inject canonical bare Agent[\s\S]*?python\/src\/tdx_ths_linker\/agent\/win-x64/);
+  assert.match(workflow, /publish-cloud:[\s\S]*?name: canonical-agent-release/);
+  assert.match(workflow, /rm release-assets\/onclaw-tdx-ths-agent\.exe/);
+  assert.match(workflow, /onclaw-tdx-ths-setup-win-x64\.exe/);
+  assert.match(workflow, /onclaw-tdx-ths-web-example\.html/);
+  assert.match(workflow, /release\/agent\/SHA256SUMS\.txt/);
+  assert.doesNotMatch(workflow, /skill-release|build-skill:/);
 });
 
-test("Web Agent release contains only installer distribution assets", () => {
+test("obsolete in-process native release channels are absent", () => {
+  assert.doesNotMatch(workflow, /build-node:|tdx-ths-linker\.node|\.dll|ONCLAW_BUILD_CAPI/);
+  assert.match(workflow, /npm run test:package/);
+  assert.match(workflow, /scripts\/validate-python-wheel\.py/);
+  assert.match(workflow, /pypa\/gh-action-pypi-publish/);
+  assert.doesNotMatch(npmPackage, /postinstall|onclaw-tdx-ths-setup-win-x64\.exe/);
+});
+
+test("registered installer lifecycle is validated as a per-user process", () => {
   assert.match(workflow, /validate-agent-installer\.ps1/);
-  assert.doesNotMatch(workflow, /onclaw-tdx-ths-agent-portable-win-x64\.zip/);
-  assert.doesNotMatch(workflow, /Compress-Archive[\s\S]*agent-portable/);
-  assert.match(workflow, /onclaw-tdx-ths-setup-win-x64\.exe/);
-  assert.match(workflow, /release\/agent\/SHA256SUMS\.txt/);
-  assert.match(workflow, /name: agent-installer-release/);
-  assert.match(workflow, /path: dist\/agent-release-assets\/\*/);
   assert.match(installerValidation, /Start-Process -FilePath \$agent/);
   assert.match(installerValidation, /-WindowStyle Hidden -Wait -PassThru/);
   assert.match(installerValidation, /\$verification\.ExitCode/);
-  assert.doesNotMatch(installerValidation, /& \$agent --verify-registration/);
+  assert.match(installerValidation, /--verify-health/);
+  assert.match(installerScript, /OnclawTdxThs\.transition\.lock/);
+  assert.match(installerScript, /--shutdown/);
+  assert.match(installerScript, /--register/);
+  assert.match(installerScript, /--verify-health/);
+  assert.match(installerScript, /Exec '\"\$INSTDIR\\onclaw-tdx-ths-agent\.exe\"'/);
 });
 
-test("npm release validates all integration examples", () => {
-  assert.match(workflow, /npm run test:examples/);
-  assert.match(workflow, /name: node-binary/);
-  assert.match(workflow, /path: packages\/client\/native\/win-x64/);
-  assert.match(workflow, /npm run test:package/);
-  assert.match(workflow, /smoke-native-electron\.cjs/);
-});
-
-test("registry releases precede GitHub Release publication", () => {
+test("npm and PyPI publication precede cloud deployment", () => {
   assert.match(workflow, /npm publish dist\/npm\/\*\.tgz --access public --tag latest/);
-  assert.match(workflow, /npm view "tdx-ths-linker@\$version" version/);
-  assert.match(workflow, /skip-existing: true/);
-  assert.match(
-    workflow,
-    /needs: \[build-node, build-agent, build-skill, publish-pypi, publish-npm\]/,
-  );
-  assert.match(workflow, /RELEASE_TAG: \$\{\{ github\.ref_name \}\}/);
+  assert.match(workflow, /publish-cloud:[\s\S]*?needs: \[build-agent, publish-npm, publish-pypi\]/);
+  assert.match(workflow, /gh release (?:upload|create)/);
 });

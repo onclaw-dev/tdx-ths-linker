@@ -36,6 +36,12 @@ try {
   if ($verification.ExitCode -ne 0) {
     throw "Installed Agent failed protocol registration verification with code $($verification.ExitCode)"
   }
+  $health = Start-Process -FilePath $agent `
+    -ArgumentList "--verify-health" `
+    -WindowStyle Hidden -Wait -PassThru
+  if ($health.ExitCode -ne 0) {
+    throw "Installed Agent failed health verification with code $($health.ExitCode)"
+  }
 
   $commandKey = Join-Path $protocolKey "shell\open\command"
   $actualCommand = (Get-Item -LiteralPath $commandKey).GetValue("")

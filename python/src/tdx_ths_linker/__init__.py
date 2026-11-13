@@ -1,26 +1,26 @@
+from .bootstrap import ensure_agent
 from .client import Client
 from .contracts import CommandResult, EndpointState, InitResult, RuntimeState
 from .exceptions import (
-    AbiMismatchError,
+    AgentConnectionError,
+    AgentLaunchError,
     ClientClosedError,
-    NativeCallError,
-    NativeLoadError,
     TdxThsLinkerError,
     UnsupportedPlatformError,
 )
 
 __all__ = [
-    "AbiMismatchError",
+    "AgentConnectionError",
+    "AgentLaunchError",
     "Client",
     "ClientClosedError",
     "CommandResult",
     "EndpointState",
     "InitResult",
-    "NativeCallError",
-    "NativeLoadError",
     "RuntimeState",
     "TdxThsLinkerError",
     "UnsupportedPlatformError",
+    "ensure_agent",
 ]
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"

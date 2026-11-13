@@ -1,12 +1,17 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace onclaw_tdx_ths {
@@ -25,6 +30,10 @@ struct RuntimeConfig {
   std::uint32_t scanRetryMs = 4000;
   std::uint32_t scanTimeoutMs = 2500;
   std::uint32_t commandTimeoutMs = 1500;
+  std::uint32_t burstWindowMs = 300;
+  std::uint32_t idleTimeoutMs = 5000;
+  std::uint32_t dedupeCapacity = 256;
+  std::function<void(const std::string&, const std::string&)> commandObserver;
   EndpointConfig ths;
   EndpointConfig tdx;
 };
@@ -46,6 +55,8 @@ struct EndpointState {
 struct RuntimeState {
   bool initialized = false;
   bool supported = true;
+  bool active = false;
+  std::uint64_t lastActivityAt = 0;
   std::string runtimeHealth = "idle";
   std::string licenseState = "unaccepted";
   std::string message;
@@ -66,6 +77,8 @@ struct CommandResult {
   std::string status;
   std::string target;
   std::string code;
+  std::string clientId;
+  std::string requestId;
   std::string message;
 };
 
@@ -74,20 +87,40 @@ RuntimeConfig DefaultRuntimeConfig();
 class Runtime {
  public:
   Runtime();
+  explicit Runtime(RuntimeConfig config);
   ~Runtime();
   Runtime(const Runtime&) = delete;
   Runtime& operator=(const Runtime&) = delete;
 
   InitResult Init(bool licenseAccepted);
   RuntimeState State();
-  CommandResult Queue(const std::string& target, const std::string& code);
+  RuntimeState Snapshot();
+  CommandResult Queue(const std::string& target, const std::string& code,
+                      const std::string& clientId = "anonymous",
+                      const std::string& requestId = "");
   void Stop();
 
  private:
-  struct Command { std::string target; std::string code; };
+  using TimePoint = std::chrono::steady_clock::time_point;
+  struct Command {
+    std::string target;
+    std::string code;
+    std::string clientId;
+    std::string requestId;
+  };
+  struct CommandLane {
+    std::optional<Command> ready;
+    std::optional<Command> trailing;
+    std::string leadingCode;
+    TimePoint deadline{};
+    bool windowActive = false;
+  };
   void Start();
   void Loop();
   void ProcessCommands(const RuntimeConfig& config);
+  void TouchActivity();
+  void PromoteDueLocked(CommandLane* lane, TimePoint now);
+  CommandLane& Lane(const std::string& target);
   void Poll(const RuntimeConfig& config, const EndpointConfig& endpoint);
   void ResolveOffset(void* process, std::uint32_t pid, std::uintptr_t base,
                      std::uint32_t size, const RuntimeConfig& runtime,
@@ -109,7 +142,11 @@ class Runtime {
   RuntimeState state_;
   std::mutex queueMutex_;
   std::condition_variable condition_;
-  std::deque<Command> commands_;
+  CommandLane thsCommands_;
+  CommandLane tdxCommands_;
+  std::deque<std::string> recentRequestOrder_;
+  std::unordered_set<std::string> recentRequests_;
+  TimePoint activeUntil_{};
   std::atomic<bool> running_{false};
   std::thread worker_;
 };

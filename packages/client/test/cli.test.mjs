@@ -33,7 +33,7 @@ const run = async (argv, states = [state()]) => {
   let index = 0;
   let clock = 0;
   const client = {
-    transport: "node",
+    transport: "agent",
     initialize: async (accepted) => ({ ok: accepted, licenseState: accepted ? "accepted" : "unaccepted", message: accepted ? "ready" : "license", runtimeHealth: accepted ? "ready" : "unavailable" }),
     getState: async () => states[Math.min(index++, states.length - 1)],
     setCode: async (target, code) => {
@@ -53,7 +53,7 @@ const run = async (argv, states = [state()]) => {
   return { exitCode, envelope: output.length ? JSON.parse(output.at(-1)) : undefined, writes };
 };
 
-test("CLI refuses native commands before explicit license acceptance", async () => {
+test("CLI refuses Agent commands before explicit license acceptance", async () => {
   const result = await run(["--json", "state"]);
   assert.equal(result.exitCode, CLI_EXIT.usage);
   assert.equal(result.envelope.error.code, "license_not_accepted");

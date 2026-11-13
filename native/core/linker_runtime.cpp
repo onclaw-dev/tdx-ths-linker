@@ -125,19 +125,22 @@ RuntimeConfig DefaultRuntimeConfig() {
   return config;
 }
 
-Runtime::Runtime() = default;
+Runtime::Runtime() : Runtime(DefaultRuntimeConfig()) {}
+Runtime::Runtime(RuntimeConfig config) : config_(std::move(config)) {}
 Runtime::~Runtime() { Stop(); }
 
 InitResult Runtime::Init(bool licenseAccepted) {
   Stop();
   {
     std::lock_guard lock(queueMutex_);
-    commands_.clear();
+    thsCommands_ = {};
+    tdxCommands_ = {};
+    recentRequestOrder_.clear();
+    recentRequests_.clear();
+    activeUntil_ = {};
   }
-  RuntimeConfig config = DefaultRuntimeConfig();
   {
     std::lock_guard lock(mutex_);
-    config_ = config;
     state_ = RuntimeState{};
     state_.licenseState = licenseAccepted ? "accepted" : "unaccepted";
     state_.initialized = licenseAccepted;
@@ -148,7 +151,10 @@ InitResult Runtime::Init(bool licenseAccepted) {
     state_.ths.health = licenseAccepted ? "initializing" : "unavailable";
     state_.tdx.health = licenseAccepted ? "initializing" : "unavailable";
   }
-  if (licenseAccepted) Start();
+  if (licenseAccepted) {
+    Start();
+    TouchActivity();
+  }
   return {licenseAccepted,
           licenseAccepted ? "accepted" : "unaccepted",
           licenseAccepted ? "onclaw-tdx-ths runtime initialized"
@@ -157,34 +163,122 @@ InitResult Runtime::Init(bool licenseAccepted) {
 }
 
 RuntimeState Runtime::State() {
+  TouchActivity();
+  return Snapshot();
+}
+
+RuntimeState Runtime::Snapshot() {
   std::lock_guard lock(mutex_);
   return state_;
 }
 
 CommandResult Runtime::Queue(const std::string& target,
-                             const std::string& code) {
+                             const std::string& code,
+                             const std::string& clientId,
+                             const std::string& requestId) {
   RuntimeState state;
   {
     std::lock_guard lock(mutex_);
     state = state_;
   }
   if (!state.initialized) {
-    return {false, false, "unavailable", target, code, state.message};
+    return {false, false, "unavailable", target, code, clientId, requestId,
+            state.message};
   }
   if (!SixDigits(code)) {
-    return {false, false, "invalid_code", target, code,
+    return {false, false, "invalid_code", target, code, clientId, requestId,
             "stock code must be six digits"};
   }
   if (target != "ths" && target != "tdx") {
-    return {false, false, "unsupported_target", target, code,
+    return {false, false, "unsupported_target", target, code, clientId,
+            requestId,
             "unsupported target"};
+  }
+  const auto effectiveRequest =
+      requestId.empty() ? std::string{} : clientId + ":" + requestId;
+  std::string status;
+  {
+    std::lock_guard lock(queueMutex_);
+    if (!effectiveRequest.empty() &&
+        recentRequests_.find(effectiveRequest) != recentRequests_.end()) {
+      return {true, true, "duplicate", target, code, clientId, requestId,
+              "duplicate command ignored"};
+    }
+    if (!effectiveRequest.empty()) {
+      recentRequests_.insert(effectiveRequest);
+      recentRequestOrder_.push_back(effectiveRequest);
+    }
+    const auto capacity =
+        config_.dedupeCapacity == 0 ? 256 : config_.dedupeCapacity;
+    while (recentRequestOrder_.size() > capacity) {
+      recentRequests_.erase(recentRequestOrder_.front());
+      recentRequestOrder_.pop_front();
+    }
+
+    const auto now = Clock::now();
+    auto& lane = Lane(target);
+    PromoteDueLocked(&lane, now);
+    Command command{target, code, clientId, requestId};
+    if (!lane.windowActive && !lane.ready) {
+      lane.ready = command;
+      lane.leadingCode = code;
+      lane.deadline =
+          now + Ms(config_.burstWindowMs == 0 ? 300 : config_.burstWindowMs);
+      lane.windowActive = true;
+      status = "accepted";
+    } else {
+      if (!lane.windowActive) {
+        lane.leadingCode = lane.ready ? lane.ready->code : code;
+        lane.deadline =
+            now + Ms(config_.burstWindowMs == 0 ? 300 : config_.burstWindowMs);
+        lane.windowActive = true;
+      }
+      if (code == lane.leadingCode)
+        lane.trailing.reset();
+      else
+        lane.trailing = command;
+      status = "coalesced";
+    }
+  }
+  TouchActivity();
+  condition_.notify_all();
+  return {true, true, status, target, code, clientId, requestId,
+          status == "accepted" ? "command queued" : "latest command retained"};
+}
+
+void Runtime::TouchActivity() {
+  RuntimeConfig config;
+  {
+    std::lock_guard lock(mutex_);
+    if (!state_.initialized) return;
+    config = config_;
+    state_.active = true;
+    state_.lastActivityAt = NowMs();
+    if (state_.runtimeHealth == "idle") state_.runtimeHealth = "initializing";
   }
   {
     std::lock_guard lock(queueMutex_);
-    commands_.push_back({target, code});
+    activeUntil_ = Clock::now() +
+                   Ms(config.idleTimeoutMs == 0 ? 5000 : config.idleTimeoutMs);
   }
   condition_.notify_all();
-  return {true, true, "accepted", target, code, "command queued"};
+}
+
+Runtime::CommandLane& Runtime::Lane(const std::string& target) {
+  return target == "ths" ? thsCommands_ : tdxCommands_;
+}
+
+void Runtime::PromoteDueLocked(CommandLane* lane, TimePoint now) {
+  if (!lane->windowActive || now < lane->deadline) return;
+  if (!lane->ready && lane->trailing) {
+    lane->ready = std::move(lane->trailing);
+    lane->trailing.reset();
+    lane->windowActive = false;
+    lane->leadingCode.clear();
+  } else if (!lane->trailing) {
+    lane->windowActive = false;
+    lane->leadingCode.clear();
+  }
 }
 
 void Runtime::Start() {
@@ -208,12 +302,41 @@ void Runtime::Loop() {
       std::lock_guard lock(mutex_);
       config = config_;
     }
+    bool active = false;
+    {
+      std::lock_guard lock(queueMutex_);
+      const auto now = Clock::now();
+      PromoteDueLocked(&thsCommands_, now);
+      PromoteDueLocked(&tdxCommands_, now);
+      active = now < activeUntil_ || thsCommands_.ready || tdxCommands_.ready;
+    }
+    if (!active) {
+      {
+        std::lock_guard lock(mutex_);
+        state_.active = false;
+        if (state_.initialized) state_.runtimeHealth = "idle";
+      }
+      std::unique_lock lock(queueMutex_);
+      condition_.wait(lock, [this] {
+        return !running_ || Clock::now() < activeUntil_ ||
+               thsCommands_.ready.has_value() || tdxCommands_.ready.has_value();
+      });
+      continue;
+    }
     ProcessCommands(config);
     Poll(config, config.ths);
     Poll(config, config.tdx);
     RecomputeHealth();
     std::unique_lock lock(queueMutex_);
-    condition_.wait_for(lock, Ms(config.pollMs == 0 ? 350 : config.pollMs));
+    auto wait = Ms(config.pollMs == 0 ? 350 : config.pollMs);
+    const auto now = Clock::now();
+    for (const auto* lane : {&thsCommands_, &tdxCommands_}) {
+      if (lane->windowActive && lane->deadline > now) {
+        wait = (std::min)(wait,
+                          std::chrono::duration_cast<Ms>(lane->deadline - now));
+      }
+    }
+    condition_.wait_for(lock, wait);
   }
 }
 
@@ -221,10 +344,22 @@ void Runtime::ProcessCommands(const RuntimeConfig& config) {
   std::deque<Command> pending;
   {
     std::lock_guard lock(queueMutex_);
-    pending.swap(commands_);
+    const auto now = Clock::now();
+    PromoteDueLocked(&thsCommands_, now);
+    PromoteDueLocked(&tdxCommands_, now);
+    if (thsCommands_.ready) {
+      pending.push_back(std::move(*thsCommands_.ready));
+      thsCommands_.ready.reset();
+    }
+    if (tdxCommands_.ready) {
+      pending.push_back(std::move(*tdxCommands_.ready));
+      tdxCommands_.ready.reset();
+    }
   }
   for (const auto& command : pending) {
-    if (command.target == "ths") {
+    if (config.commandObserver) {
+      config.commandObserver(command.target, command.code);
+    } else if (command.target == "ths") {
       ExecuteThs(config.commandTimeoutMs, command.code);
     } else {
       ExecuteTdx(command.code);
@@ -463,6 +598,7 @@ void Runtime::SetError(const std::string& name, const std::string& error) {
 
 void Runtime::RecomputeHealth() {
   std::lock_guard lock(mutex_);
+  state_.active = true;
   const bool ready = state_.ths.health == "ready" || state_.tdx.health == "ready";
   const bool fallback = state_.ths.usingFallback || state_.tdx.usingFallback;
   state_.runtimeHealth = ready ? (fallback ? "degraded" : "ready") : "degraded";

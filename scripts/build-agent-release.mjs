@@ -27,8 +27,6 @@ run("cmake", [
   buildDir,
   "-A",
   "x64",
-  "-DONCLAW_BUILD_CAPI=OFF",
-  "-DONCLAW_BUILD_NODE=OFF",
   "-DONCLAW_BUILD_AGENT=ON",
   "-DONCLAW_BUILD_TESTS=OFF",
 ]);
@@ -83,7 +81,7 @@ run(makensis, [
 if (!unsigned) sign(installerPath);
 
 const inventory = [];
-for (const name of [installer]) {
+for (const name of [executable, installer]) {
   const bytes = await readFile(join(releaseDir, name));
   inventory.push(`${createHash("sha256").update(bytes).digest("hex")}  ${name}`);
 }

@@ -5,13 +5,13 @@ description: Inspect TDX/THS desktop state and explicitly link one or both appli
 
 # TDX THS Linker
 
-Use the locally installed npm `tdx-ths-linker` CLI as the only operational boundary. Do not load `.node` directly or reconstruct process-memory behavior.
+Use the locally installed npm `tdx-ths-linker` CLI as the only operational boundary. Every command goes through the single installed Windows Agent over loopback HTTP.
 
 ## Prerequisites
 
 - Confirm the command exists with `npx --no-install tdx-ths-linker --version`.
 - If it is missing, report that the user can install it in the current project with `npm install tdx-ths-linker`; do not install it without authorization.
-- Native commands require prior GPL acceptance through `--accept-license` or `TDX_THS_LINKER_LICENSE_ACCEPTED=1`. Do not invent acceptance. If neither is already configured, ask the user to review and accept the repository license before proceeding.
+- Agent commands require prior GPL acceptance through `--accept-license` or `TDX_THS_LINKER_LICENSE_ACCEPTED=1`. Do not invent acceptance. If neither is already configured, ask the user to review and accept the repository license before proceeding.
 
 ## Workflow
 

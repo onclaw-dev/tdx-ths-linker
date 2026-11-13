@@ -7,7 +7,7 @@ const readme = await readFile(new URL("../examples/web-quickstart/README.md", im
 const projectReadme = await readFile(new URL("../README.md", import.meta.url), "utf8");
 
 test("quickstart uses a pinned npm ESM build and high-level APIs", () => {
-  assert.match(html, /cdn\.jsdelivr\.net\/npm\/tdx-ths-linker@0\.1\.2\/dist\/index\.mjs/);
+  assert.match(html, /cdn\.jsdelivr\.net\/npm\/tdx-ths-linker@0\.1\.3\/dist\/index\.mjs/);
   assert.match(html, /createWebLinker/);
   assert.match(html, /createStockLinkRuntime/);
   assert.match(html, /https:\/\/fin\.onclaw\.cc\/linker\/onclaw-tdx-ths-setup-win-x64\.exe/);
@@ -44,7 +44,7 @@ test("project and Web docs use relocated image assets and link the preview", asy
   assert.match(projectReadme, /imgs\/icon\.png/);
   assert.match(projectReadme, /imgs\/preview6\.png/);
   assert.match(projectReadme, /examples\/web-quickstart\/README\.md/);
-  assert.match(projectReadme, /支持 Web 网页、桌面应用、Skill、Harness 的通达信、同花顺代码联动模块/);
+  assert.match(projectReadme, /Web、Node \/ Electron、Python、CLI、Harness/);
   assert.match(readme, /\.\.\/\.\.\/imgs\/icon\.png/);
   for (let index = 1; index <= 6; index += 1) {
     assert.match(readme, new RegExp(`\\.\\.\\/\\.\\.\\/imgs\\/preview${index}\\.png`));
@@ -54,7 +54,7 @@ test("project and Web docs use relocated image assets and link the preview", asy
     assert.match(readme, new RegExp(`href="#flow-${anchor}"`));
     assert.match(readme, new RegExp(`<a id="flow-${anchor}"></a>`));
   }
-  assert.match(readme, /onclaw-tdx-ths:\/\/activate\?v=1&nonce=/);
+  assert.match(readme, /onclaw-tdx-ths:\/\/activate\?v=1&origin=/);
   assert.match(readme, /http:\/\/127\.0\.0\.1:17654/);
   assert.match(readme, /--verify-registration/);
   await Promise.all([
@@ -69,10 +69,12 @@ test("Web docs specify the complete Python requests and JSON protocol flow", () 
   assert.match(readme, /import requests/);
   assert.match(readme, /webbrowser\.open\(activation_url\)/);
   assert.match(readme, /requests\.post\(/);
-  assert.match(readme, /"sessionToken": "短期-bearer-token"/);
+  assert.match(readme, /"writeAuthorized": true/);
   assert.match(readme, /"licenseAccepted": true/);
   assert.match(readme, /"target": "tdx"/);
   assert.match(readme, /"code": "600825"/);
-  assert.match(readme, /invalid_or_consumed_nonce/);
-  assert.match(readme, /accepted: true.*只表示命令已排队/s);
+  assert.match(readme, /"clientId":/);
+  assert.match(readme, /"requestId":/);
+  assert.match(readme, /origin_not_authorized/);
+  assert.match(readme, /accepted: true.*调度器接受/s);
 });

@@ -1,6 +1,6 @@
 # Web 快速接入
 
-Web 接入不需要登录或后端票据。npm 包负责 Windows/Origin 检查、自定义协议唤醒、loopback 重试、初始化和安装恢复；本机 Agent 负责与 TDX、THS 交互。
+Web 接入不需要登录、后端票据或短期 session。npm 包负责 Windows/Origin 检查、自定义协议写授权、loopback 重试、初始化和安装恢复；本机 Agent 负责与 TDX、THS 交互。
 
 ## 生产接入
 
@@ -40,6 +40,8 @@ connectButton.addEventListener("click", () => {
 
 必须从 HTTPS 或 `http://localhost` 页面发起，并把 `connect()` 直接放在用户点击处理函数中。浏览器没有可靠的“协议是否已安装”查询接口，因此连接失败只能表示当前无法访问 Agent；UI 应提供安装器链接和安装后的重试按钮。
 
+协议激活会授予当前网页 Origin 在 Agent 进程生命周期内的写权限，不创建易失 session。`health` 和 `state` 可直接读取；浏览器 `set-code` 必须来自已激活 Origin。客户端自动为每个实例和写请求生成 `clientId`/`requestId`。
+
 ## 自动联动语义
 
 `createStockLinkRuntime()` 支持：
@@ -50,6 +52,8 @@ connectButton.addEventListener("click", () => {
 - `tdx-to-ths`：仅把 TDX 后续变化转发给 THS。
 
 开启方向、切换方向或来源软件恢复后的第一次有效读数只建立基线，不写入目标端。只有随后发生的代码变化才会转发；目标端已经是相同代码时也不会重复写入。项目不默认提供双向联动，避免反馈循环和启动覆盖。
+
+Agent 对每个目标执行 300 ms 首尾合并：来自网页、CLI、Node、Electron 或 Harness 的突发写入进入同一个全局调度器，立即处理第一个，并只保留窗口内最后一个不同代码。持续状态轮询会续期 Agent runtime 的活跃租约；所有调用停止后 runtime 自动进入空闲，下一次读取或写入自动唤醒。
 
 ## 一文件示例
 

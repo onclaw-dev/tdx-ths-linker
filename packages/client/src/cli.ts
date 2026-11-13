@@ -7,7 +7,7 @@ export const CLI_EXIT = {
   unavailable: 3,
   rejected: 4,
   timeout: 5,
-  native: 6,
+  agent: 6,
   unexpected: 10,
 } as const;
 
@@ -118,15 +118,15 @@ export async function runCli(argv: string[], dependencies: CliDependencies): Pro
     try {
       client = dependencies.clientFactory();
     } catch (error) {
-      throw new CliError(CLI_EXIT.native, "native_load_failed", error instanceof Error ? error.message : String(error));
+      throw new CliError(CLI_EXIT.agent, "agent_unavailable", error instanceof Error ? error.message : String(error));
     }
     let initialized;
     try {
       initialized = await client.initialize(true);
     } catch (error) {
-      throw new CliError(CLI_EXIT.native, "initialize_failed", error instanceof Error ? error.message : String(error));
+      throw new CliError(CLI_EXIT.agent, "initialize_failed", error instanceof Error ? error.message : String(error));
     }
-    if (!initialized.ok) throw new CliError(CLI_EXIT.native, "initialize_failed", initialized.message, initialized);
+    if (!initialized.ok) throw new CliError(CLI_EXIT.agent, "initialize_failed", initialized.message, initialized);
     const initialDeadline = now() + Math.min(args.timeoutMs, 5_000);
     let state = await client.getState();
     while (state.runtimeHealth === "initializing" && now() < initialDeadline) {

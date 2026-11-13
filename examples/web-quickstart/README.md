@@ -64,14 +64,14 @@ Windows Agent（用户目录安装）
 共享 C++ runtime ── TDX / THS
 ```
 
-浏览器受安全沙箱限制，不能直接读取其他 Windows 进程的内存，也不能直接加载本项目的 DLL。为此，本项目提供一个本机代理 EXE（Agent）：安装包负责安装 Agent 并注册 `onclaw-tdx-ths://`，网页先用该协议唤醒 Agent，再通过只监听本机回环地址的 HTTP API 完成配对、读取和写入。
+浏览器受安全沙箱限制，不能直接读取其他 Windows 进程的内存，也不能直接加载本项目的 DLL。为此，本项目提供一个本机代理 EXE（Agent）：安装包负责安装 Agent 并注册 `onclaw-tdx-ths://`，网页先用该协议授予当前 Origin 写权限，再通过只监听本机回环地址的 HTTP API 完成读取和写入。
 
 Agent 实现并维护的是两层协议：
 
-1. `onclaw-tdx-ths://`：由浏览器真实用户操作触发，用于启动 Agent，并把一次性 `nonce` 与网页 `Origin` 绑定。
-2. `http://127.0.0.1:17654/v1/*`：用于领取短期会话、初始化 runtime、读取状态和设置代码。
+1. `onclaw-tdx-ths://`：由浏览器真实用户操作触发，用于启动 Agent，并授予网页 `Origin` 进程期写权限。
+2. `http://127.0.0.1:17654/v1/*`：用于无 session 初始化 runtime、读取状态和设置代码。
 
-Agent 只在内存中临时保存待领取的 `nonce` 和短期 session，不在网页中暴露 TDX、THS 的进程内存，也不要求把股票代码或认证信息保存到安装目录。
+Agent 只在内存中保存当前进程已授权的 Origin，不在网页中暴露 TDX、THS 的进程内存，也不把股票代码或授权信息保存到安装目录。授权在 Agent 退出后自动清空。
 
 ### 安装位置与监听参数
 
@@ -90,13 +90,12 @@ Agent 只在内存中临时保存待领取的 `nonce` 和短期 session，不在
 网页在用户点击“已安装，唤醒并连接”时打开：
 
 ```text
-onclaw-tdx-ths://activate?v=1&nonce=<一次性随机值>&origin=<网页Origin>
+onclaw-tdx-ths://activate?v=1&origin=<网页Origin>
 ```
 
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `v` | 是 | 激活协议版本，当前为 `1` |
-| `nonce` | 是 | 一次性随机值，用于领取本地会话，成功后立即失效 |
 | `origin` | 是 | 发起连接的精确网页 Origin，例如 `http://localhost:8080` |
 
 Agent 不接受额外参数、重复参数或不安全 Origin。浏览器询问是否打开外部应用时，必须由用户明确确认。
@@ -105,13 +104,12 @@ Agent 不接受额外参数、重复参数或不安全 Origin。浏览器询问�
 
 | 方法与路径 | 认证 | 用途 |
 | --- | --- | --- |
-| `GET /v1/health` | Origin 检查 | 检查 Agent、协议版本和可写目标 |
-| `POST /v1/session/claim` | 一次性 `nonce` | 领取短期 bearer session |
-| `POST /v1/initialize` | Bearer token | 初始化 runtime；安装器已完成许可证确认 |
-| `GET /v1/state` | Bearer token | 读取 TDX、THS 可用性与当前代码 |
-| `POST /v1/set-code` | Bearer token | 向明确的 `tdx` 或 `ths` 发送六位代码 |
+| `GET /v1/health` | 无 | 检查 Agent、协议版本和当前 Origin 写权限 |
+| `POST /v1/initialize` | 无 | 幂等初始化 runtime；安装器已完成许可证确认 |
+| `GET /v1/state` | 无 | 读取 TDX、THS 可用性与当前代码，并唤醒空闲 runtime |
+| `POST /v1/set-code` | 已授权 Origin | 向明确的 `tdx` 或 `ths` 发送六位代码 |
 
-网页请求会携带精确 Origin；session 默认有效期为 10 分钟。写入命令返回 `accepted` 只代表已经进入 runtime 队列，页面仍会继续读取状态，直到目标端返回指定代码才显示确认成功。
+网页写入会携带精确 Origin；不存在短期 session。高频写入按目标在 300 ms 内执行首值并只保留最后一个不同尾值。页面仍会继续读取状态，直到目标端返回指定代码才显示确认成功。
 
 ### Python requests 协议示例
 
@@ -138,10 +136,9 @@ BASE_URL = "http://127.0.0.1:17654"
 ORIGIN = "http://localhost:8080"
 CODE = "600825"
 
-# 1. 生成 32 字节随机 nonce，并通过自定义协议唤醒 Agent。
-nonce = secrets.token_hex(32)
+# 1. 通过自定义协议唤醒 Agent，并授权当前 Origin 写入。
 activation_url = "onclaw-tdx-ths://activate?" + urllib.parse.urlencode(
-    {"v": "1", "nonce": nonce, "origin": ORIGIN}
+    {"v": "1", "origin": ORIGIN}
 )
 webbrowser.open(activation_url)
 
@@ -154,47 +151,39 @@ while True:
             f"{BASE_URL}/v1/health", headers=origin_headers, timeout=1
         )
         health.raise_for_status()
-        break
+        if health.json().get("writeAuthorized"):
+            break
     except requests.RequestException:
         if time.monotonic() >= deadline:
             raise RuntimeError("Agent 未在 10 秒内启动")
         time.sleep(0.25)
 
-# 3. nonce 只能领取一次；成功后得到默认有效 600 秒的 bearer token。
-claim = requests.post(
-    f"{BASE_URL}/v1/session/claim",
-    headers=origin_headers,
-    json={"nonce": nonce},
-    timeout=2,
-)
-claim.raise_for_status()
-token = claim.json()["sessionToken"]
-session_headers = {
-    "Origin": ORIGIN,
-    "Authorization": f"Bearer {token}",
-}
-
-# 4. 初始化共享 runtime。
+# 3. 初始化共享 runtime，不领取或保存短期 token。
 initialized = requests.post(
     f"{BASE_URL}/v1/initialize",
-    headers=session_headers,
+    headers=origin_headers,
     json={"licenseAccepted": True},
     timeout=2,
 )
 initialized.raise_for_status()
 
-# 5. 读取 TDX、THS 当前状态。
+# 4. 读取 TDX、THS 当前状态。
 state = requests.get(
-    f"{BASE_URL}/v1/state", headers=session_headers, timeout=2
+    f"{BASE_URL}/v1/state", headers=origin_headers, timeout=2
 )
 state.raise_for_status()
 print(json.dumps(state.json(), ensure_ascii=False, indent=2))
 
-# 6. 设置一个目标；target 改为 ths 即可写入 THS。
+# 5. 设置一个目标；target 改为 ths 即可写入 THS。
 command = requests.post(
     f"{BASE_URL}/v1/set-code",
-    headers=session_headers,
-    json={"target": "tdx", "code": CODE},
+    headers=origin_headers,
+    json={
+        "target": "tdx",
+        "code": CODE,
+        "clientId": "python-example",
+        "requestId": "request-" + secrets.token_hex(16),
+    },
     timeout=2,
 )
 command.raise_for_status()
@@ -211,35 +200,15 @@ print(json.dumps(command.json(), ensure_ascii=False, indent=2))
 {
   "ok": true,
   "protocolVersion": 1,
-  "agentVersion": "0.1.2",
+  "agentVersion": "0.1.3",
   "writableTargets": ["tdx", "ths"],
-  "paired": false
+  "writeAuthorized": true
 }
 ```
 
 客户端必须确认 `protocolVersion` 为 `1`，版本不匹配时不能继续写入。
 
-#### 2. 领取本机会话
-
-请求 JSON：
-
-```json
-{
-  "nonce": "由浏览器生成并传给唤醒协议的一次性随机值"
-}
-```
-
-响应 JSON：
-
-```json
-{
-  "sessionToken": "短期-bearer-token",
-  "expiresIn": 600,
-  "writableTargets": ["tdx", "ths"]
-}
-```
-
-#### 3. 初始化 runtime
+#### 2. 初始化 runtime
 
 请求 JSON：
 
@@ -262,7 +231,7 @@ print(json.dumps(command.json(), ensure_ascii=False, indent=2))
 
 安装时已展示并确认 GPL-3.0-only 许可证；该字段用于明确初始化请求，不需要网页再次显示复选框。
 
-#### 4. 读取 TDX、THS 状态
+#### 3. 读取 TDX、THS 状态
 
 请求没有 JSON 正文。响应中的 `tdx` 与 `ths` 使用同一结构，例如：
 
@@ -270,6 +239,8 @@ print(json.dumps(command.json(), ensure_ascii=False, indent=2))
 {
   "initialized": true,
   "isSupported": true,
+  "active": true,
+  "lastActivityAt": 0,
   "runtimeHealth": "ready",
   "licenseState": "accepted",
   "message": "runtime ready",
@@ -304,14 +275,16 @@ print(json.dumps(command.json(), ensure_ascii=False, indent=2))
 
 时间、偏移量和 PID 均为运行时示例值，接入方不应把它们写死。
 
-#### 5. 设置代码
+#### 4. 设置代码
 
 请求 JSON：
 
 ```json
 {
   "target": "tdx",
-  "code": "600825"
+  "code": "600825",
+  "clientId": "web-稳定调用方标识",
+  "requestId": "request-单次请求标识"
 }
 ```
 
@@ -319,6 +292,8 @@ print(json.dumps(command.json(), ensure_ascii=False, indent=2))
 | --- | --- | --- |
 | `target` | `tdx` 或 `ths` | 必须明确指定一个目标，不能同时写两端 |
 | `code` | 六位 ASCII 数字 | 例如 `600825`、`002131` |
+| `clientId` | 1–128 个安全字符 | 调用方归属标识，不是认证凭据 |
+| `requestId` | 1–128 个安全字符 | 单次请求幂等标识 |
 
 响应 JSON：
 
@@ -329,11 +304,13 @@ print(json.dumps(command.json(), ensure_ascii=False, indent=2))
   "status": "accepted",
   "target": "tdx",
   "code": "600825",
+  "clientId": "web-example",
+  "requestId": "request-example",
   "message": "command queued"
 }
 ```
 
-`accepted: true` 只表示命令已排队，不代表桌面软件已经切换成功。可靠接入必须继续轮询 `GET /v1/state`，直到对应目标的 `code` 等于请求值，或在业务设定的超时时间后返回失败。
+`accepted: true` 表示命令被调度器接受；`status` 可能是 `accepted`、`coalesced` 或 `duplicate`。它不代表桌面软件已经切换成功。可靠接入必须继续轮询 `GET /v1/state`，直到对应目标的 `code` 等于请求值，或在业务设定的超时时间后返回失败。
 
 #### 常见错误响应
 
@@ -348,9 +325,9 @@ print(json.dumps(command.json(), ensure_ascii=False, indent=2))
 | `error` | 含义 |
 | --- | --- |
 | `invalid_host` | 请求 Host 不是 `127.0.0.1:17654` |
-| `invalid_origin` | Origin 不安全，或与配对时的 Origin 不一致 |
-| `invalid_or_consumed_nonce` | nonce 无效、已被消费或已被新激活请求替换 |
-| `local_session_required` | bearer token 缺失、过期或不属于当前 Origin |
+| `invalid_origin` | Origin 格式不安全 |
+| `origin_not_authorized` | 浏览器 Origin 尚未通过自定义协议获得写权限 |
+| `invalid_caller_identity` | `clientId` 或 `requestId` 缺失或格式无效 |
 | `not_found` | 请求路径不存在 |
 
 ### Agent 维护参数

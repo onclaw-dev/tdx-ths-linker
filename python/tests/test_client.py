@@ -1,52 +1,41 @@
-import pytest
-
-from tdx_ths_linker import Client, ClientClosedError
-from tdx_ths_linker.contracts import CommandResult, EndpointState, InitResult, RuntimeState
+from tdx_ths_linker import Client
 
 
-def endpoint(name: str) -> EndpointState:
-    return EndpointState(name, "600825", "ready", "", 1, 1, 1, True, False, True, 1)
-
-
-class FakeBinding:
+class FakeTransport:
     def __init__(self):
-        self.created = 0
-        self.destroyed = []
+        self.calls = []
 
-    def create(self):
-        self.created += 1
-        return 42
+    def request(self, path, method="GET", body=None):
+        self.calls.append((path, method, body))
+        if path == "/v1/initialize":
+            return {"ok": True, "licenseState": "accepted", "runtimeHealth": "ready", "message": "ready"}
+        if path == "/v1/state":
+            endpoint = {
+                "name": "tdx", "code": "600000", "health": "ready", "lastError": "",
+                "updatedAt": 1, "lastScanAt": 1, "lastResolvedOffset": 0, "available": True,
+                "usingFallback": False, "directRead": True, "pid": 1,
+            }
+            return {
+                "initialized": True, "isSupported": True, "active": True,
+                "lastActivityAt": 1, "runtimeHealth": "ready", "licenseState": "accepted",
+                "message": "ready", "tdx": endpoint, "ths": {**endpoint, "name": "ths"},
+            }
+        return {**body, "ok": True, "accepted": True, "status": "accepted", "message": "accepted"}
 
-    def destroy(self, handle):
-        self.destroyed.append(handle)
 
-    def initialize(self, handle, accepted):
-        return InitResult(accepted, "accepted" if accepted else "unaccepted", "ready", "ok")
+def test_python_client_uses_agent_http_contract():
+    transport = FakeTransport()
+    client = Client(_transport=transport, _ensure=False, client_id="python-test")
+    assert client.initialize(True).ok
+    assert client.get_state().tdx.code == "600000"
+    command = client.set_code("tdx", "600825")
+    assert command.accepted
+    assert transport.calls[-1][2]["clientId"] == "python-test"
+    assert transport.calls[-1][2]["requestId"].startswith("request-")
 
-    def get_state(self, handle):
-        return RuntimeState(True, True, "ready", "accepted", "ok", endpoint("ths"), endpoint("tdx"))
 
-    def set_code(self, handle, target, code):
-        return CommandResult(True, True, "accepted", target, code, "command queued")
-
-
-def test_context_manager_closes_exactly_once():
-    binding = FakeBinding()
-    with Client(True, _binding=binding) as client:
-        assert client.get_state().tdx.code == "600825"
+def test_close_is_idempotent_without_owning_runtime():
+    client = Client(_transport=FakeTransport(), _ensure=False)
     client.close()
-    assert binding.destroyed == [42]
-
-
-def test_closed_client_rejects_operations():
-    client = Client(_binding=FakeBinding())
     client.close()
-    with pytest.raises(ClientClosedError):
-        client.get_state()
-
-
-@pytest.mark.parametrize("target,code", [("bad", "600825"), ("tdx", "123"), ("ths", "１２３４５６")])
-def test_command_validation(target, code):
-    with Client(_binding=FakeBinding()) as client:
-        with pytest.raises(ValueError):
-            client.set_code(target, code)
+    assert client.closed
