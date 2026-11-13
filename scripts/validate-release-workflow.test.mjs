@@ -5,6 +5,7 @@ import test from "node:test";
 const workflow = await readFile(new URL("../.github/workflows/python-publish.yml", import.meta.url), "utf8");
 const installerScript = await readFile(new URL("../setup/onclaw-tdx-ths-setup.nsi", import.meta.url), "utf8");
 const npmPackage = await readFile(new URL("../packages/client/package.json", import.meta.url), "utf8");
+const agentSource = await readFile(new URL("../native/agent/main.cpp", import.meta.url), "utf8");
 
 test("release workflow is triggered only by v-prefixed tag pushes", () => {
   assert.match(workflow, /on:\s*\n\s+push:\s*\n\s+tags:\s*\["v\*"\]/);
@@ -41,6 +42,11 @@ test("release builds but never installs or uninstalls the registered Agent", () 
   assert.match(installerScript, /--register/);
   assert.match(installerScript, /--verify-health/);
   assert.match(installerScript, /Exec '\"\$INSTDIR\\onclaw-tdx-ths-agent\.exe\"'/);
+});
+
+test("installer health probe uses the exact Host accepted by the Agent", () => {
+  assert.match(agentSource, /Host: 127\.0\.0\.1:17654\\r\\n/);
+  assert.doesNotMatch(agentSource, /Host: 127\.0\.0\.1\\r\\n/);
 });
 
 test("npm and PyPI publication precede cloud deployment", () => {

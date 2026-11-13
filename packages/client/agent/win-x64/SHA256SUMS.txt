@@ -1,2 +1,2 @@
-a979fc81c9f89eb29e9913488a66da05881dec2e0fb1d7f3b3044a9b979cd38a  onclaw-tdx-ths-agent.exe
-bc90003f9ecbc40cac6553ec0ec574abca0aea9eff95e9f48db4ec95ff30fa84  onclaw-tdx-ths-setup-win-x64.exe
+048e5b96d4f85b5df503b9f7984802edf740dea3268d8d717d1e37753e586d9e  onclaw-tdx-ths-agent.exe
+323ee908445b7af87aca8fd7d8d59b5f8ada3fb7d820b8543a9a316c2e22c3be  onclaw-tdx-ths-setup-win-x64.exe

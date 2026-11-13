@@ -7,7 +7,7 @@ const readme = await readFile(new URL("../examples/web-quickstart/README.md", im
 const projectReadme = await readFile(new URL("../README.md", import.meta.url), "utf8");
 
 test("quickstart uses a pinned npm ESM build and high-level APIs", () => {
-  assert.match(html, /cdn\.jsdelivr\.net\/npm\/tdx-ths-linker@0\.1\.3\/dist\/index\.mjs/);
+  assert.match(html, /cdn\.jsdelivr\.net\/npm\/tdx-ths-linker@0\.1\.4\/dist\/index\.mjs/);
   assert.match(html, /createWebLinker/);
   assert.match(html, /createStockLinkRuntime/);
   assert.match(html, /https:\/\/fin\.onclaw\.cc\/linker\/onclaw-tdx-ths-setup-win-x64\.exe/);

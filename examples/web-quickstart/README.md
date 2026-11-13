@@ -200,7 +200,7 @@ print(json.dumps(command.json(), ensure_ascii=False, indent=2))
 {
   "ok": true,
   "protocolVersion": 1,
-  "agentVersion": "0.1.3",
+  "agentVersion": "0.1.4",
   "writableTargets": ["tdx", "ths"],
   "writeAuthorized": true
 }

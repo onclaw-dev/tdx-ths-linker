@@ -20,7 +20,7 @@
 #include "resource.h"
 
 #ifndef ONCLAW_TDX_THS_VERSION
-#define ONCLAW_TDX_THS_VERSION "0.1.3"
+#define ONCLAW_TDX_THS_VERSION "0.1.4"
 #endif
 
 namespace {
@@ -466,7 +466,7 @@ bool ProbeHealth() {
   bool healthy = false;
   if (connect(client, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0) {
     constexpr char request[] =
-        "GET /v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+        "GET /v1/health HTTP/1.1\r\nHost: 127.0.0.1:17654\r\nConnection: close\r\n\r\n";
     send(client, request, static_cast<int>(sizeof(request) - 1), 0);
     std::string response;
     char buffer[2048];

@@ -16,6 +16,6 @@ const exitCode = await runCli(process.argv.slice(2), {
     if (bootstrapError) throw bootstrapError;
     return createAgentClient({ clientId: `cli-${process.pid}` });
   },
-  version: "0.1.3",
+  version: "0.1.4",
 });
 process.exitCode = exitCode;
