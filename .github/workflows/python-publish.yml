@@ -42,11 +42,6 @@ jobs:
         env:
           ONCLAW_TDX_THS_RELEASE_UNSIGNED: "1"
         run: npm run release:agent
-      - name: Validate installer registration lifecycle
-        shell: pwsh
-        run: >-
-          ./scripts/validate-agent-installer.ps1
-          ./release/agent/onclaw-tdx-ths-setup-win-x64.exe
       - uses: actions/upload-artifact@v4
         with:
           name: canonical-agent-release

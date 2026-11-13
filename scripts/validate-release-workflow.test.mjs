@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const workflow = await readFile(new URL("../.github/workflows/python-publish.yml", import.meta.url), "utf8");
-const installerValidation = await readFile(new URL("../scripts/validate-agent-installer.ps1", import.meta.url), "utf8");
 const installerScript = await readFile(new URL("../setup/onclaw-tdx-ths-setup.nsi", import.meta.url), "utf8");
 const npmPackage = await readFile(new URL("../packages/client/package.json", import.meta.url), "utf8");
 
@@ -35,12 +34,8 @@ test("obsolete in-process native release channels are absent", () => {
   assert.doesNotMatch(npmPackage, /postinstall|onclaw-tdx-ths-setup-win-x64\.exe/);
 });
 
-test("registered installer lifecycle is validated as a per-user process", () => {
-  assert.match(workflow, /validate-agent-installer\.ps1/);
-  assert.match(installerValidation, /Start-Process -FilePath \$agent/);
-  assert.match(installerValidation, /-WindowStyle Hidden -Wait -PassThru/);
-  assert.match(installerValidation, /\$verification\.ExitCode/);
-  assert.match(installerValidation, /--verify-health/);
+test("release builds but never installs or uninstalls the registered Agent", () => {
+  assert.doesNotMatch(workflow, /validate-agent-installer\.ps1|Start-Process|--verify-registration|--unregister/);
   assert.match(installerScript, /OnclawTdxThs\.transition\.lock/);
   assert.match(installerScript, /--shutdown/);
   assert.match(installerScript, /--register/);
