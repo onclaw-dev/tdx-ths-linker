@@ -11,7 +11,7 @@
 <p align="center">
   <a href="../../README.md">项目主页</a>
   ·
-  <a href="https://fin.onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe">下载 Windows 联动组件</a>
+  <a href="http://onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe">下载 Windows 联动组件</a>
 </p>
 
 ## 效果预览
@@ -200,7 +200,7 @@ print(json.dumps(command.json(), ensure_ascii=False, indent=2))
 {
   "ok": true,
   "protocolVersion": 1,
-  "agentVersion": "0.1.4",
+  "agentVersion": "0.1.5",
   "writableTargets": ["tdx", "ths"],
   "writeAuthorized": true
 }
@@ -349,7 +349,7 @@ print(json.dumps(command.json(), ensure_ascii=False, indent=2))
 
 在 quickstart 页面点击“下载 Windows 联动组件”。正式下载地址为：
 
-<https://fin.onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe>
+<http://onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe>
 
 <p align="center">
   <a href="../../imgs/preview1.png">
@@ -413,7 +413,7 @@ npm install tdx-ths-linker
 import { createWebLinker } from "tdx-ths-linker";
 
 const linker = createWebLinker({
-  installerUrl: "https://fin.onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe",
+  installerUrl: "http://onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe",
 });
 ```
 

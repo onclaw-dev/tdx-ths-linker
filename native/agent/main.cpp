@@ -20,7 +20,7 @@
 #include "resource.h"
 
 #ifndef ONCLAW_TDX_THS_VERSION
-#define ONCLAW_TDX_THS_VERSION "0.1.4"
+#define ONCLAW_TDX_THS_VERSION "0.1.5"
 #endif
 
 namespace {

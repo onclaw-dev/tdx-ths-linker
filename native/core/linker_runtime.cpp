@@ -290,9 +290,11 @@ void Runtime::Start() {
 
 void Runtime::Stop() {
   bool expected = true;
-  if (!running_.compare_exchange_strong(expected, false)) return;
-  condition_.notify_all();
-  if (worker_.joinable()) worker_.join();
+  if (running_.compare_exchange_strong(expected, false)) {
+    condition_.notify_all();
+    if (worker_.joinable()) worker_.join();
+  }
+  ResetSessions();
 }
 
 void Runtime::Loop() {
@@ -367,47 +369,105 @@ void Runtime::ProcessCommands(const RuntimeConfig& config) {
   }
 }
 
+Runtime::EndpointSession& Runtime::Session(const std::string& target) {
+  return target == "ths" ? thsSession_ : tdxSession_;
+}
+
+void Runtime::ResetSession(EndpointSession* session) {
+  if (session->process) CloseHandle(static_cast<HANDLE>(session->process));
+  *session = {};
+}
+
+void Runtime::ResetSessions() {
+  ResetSession(&thsSession_);
+  ResetSession(&tdxSession_);
+}
+
 void Runtime::Poll(const RuntimeConfig& runtime,
                    const EndpointConfig& endpointConfig) {
-  const auto pid = FindProcess(endpointConfig.processes);
-  if (!pid) {
-    SetUnavailable(endpointConfig.name, "target process not found");
-    return;
+  auto& session = Session(endpointConfig.name);
+  const auto steadyNow = Clock::now();
+  const auto retry = Ms(runtime.scanRetryMs == 0 ? 4000 : runtime.scanRetryMs);
+
+  if (session.process &&
+      WaitForSingleObject(static_cast<HANDLE>(session.process), 0) !=
+          WAIT_TIMEOUT) {
+    ResetSession(&session);
+    SetUnavailable(endpointConfig.name, "target process exited");
   }
-  DWORD size = 0;
-  const auto base = FindModule(pid, endpointConfig.moduleName, &size);
-  if (!base || !size) {
-    SetUnavailable(endpointConfig.name, "target module not found");
-    return;
+
+  if (!session.process) {
+    if (steadyNow < session.nextDiscoveryAt) return;
+    const auto pid = FindProcess(endpointConfig.processes);
+    if (!pid) {
+      session.nextDiscoveryAt = steadyNow + retry;
+      SetUnavailable(endpointConfig.name, "target process not found");
+      return;
+    }
+    DWORD size = 0;
+    const auto base = FindModule(pid, endpointConfig.moduleName, &size);
+    if (!base || !size) {
+      session.nextDiscoveryAt = steadyNow + retry;
+      SetUnavailable(endpointConfig.name, "target module not found");
+      return;
+    }
+    const auto process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION |
+                                         SYNCHRONIZE,
+                                     FALSE, pid);
+    if (!process) {
+      session.nextDiscoveryAt = steadyNow + retry;
+      SetUnavailable(endpointConfig.name, "failed to open target process");
+      return;
+    }
+    session.process = process;
+    session.pid = pid;
+    session.base = base;
+    session.size = size;
+    session.nextDiscoveryAt = {};
+    session.nextResolveAt = {};
+
+    auto fresh = CopyEndpoint(endpointConfig.name);
+    fresh.pid = pid;
+    fresh.lastOffset = 0;
+    fresh.lastScanAt = 0;
+    fresh.available = false;
+    fresh.usingFallback = false;
+    fresh.directRead = endpointConfig.directRead;
+    fresh.health = "initializing";
+    fresh.lastError.clear();
+    StoreEndpoint(fresh);
   }
-  const auto process =
-      OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, FALSE, pid);
-  if (!process) {
-    SetUnavailable(endpointConfig.name, "failed to open target process");
-    return;
-  }
+
   auto endpoint = CopyEndpoint(endpointConfig.name);
   const auto now = NowMs();
-  if (endpoint.pid != pid) endpoint.lastOffset = 0;
-  if (!endpoint.lastOffset || now - endpoint.lastScanAt >= runtime.scanRetryMs) {
-    ResolveOffset(process, pid, base, size, runtime, endpointConfig, &endpoint);
+  bool attemptedResolve = false;
+  if (!endpoint.lastOffset && steadyNow >= session.nextResolveAt) {
+    ResolveOffset(session.process, session.pid, session.base, session.size,
+                  runtime, endpointConfig, &endpoint);
+    attemptedResolve = true;
   }
   const auto code = endpoint.lastOffset
-                        ? ReadCode(process, base, endpointConfig, endpoint)
+                        ? ReadCode(session.process, session.base, endpointConfig,
+                                   endpoint)
                         : "";
-  endpoint.pid = pid;
+  endpoint.pid = session.pid;
   endpoint.available = !code.empty();
   if (!code.empty()) {
     endpoint.code = code;
     endpoint.health = endpoint.usingFallback ? "degraded" : "ready";
     endpoint.lastError.clear();
     endpoint.updatedAt = now;
-  } else if (endpoint.lastError.empty()) {
+    session.nextResolveAt = {};
+  } else {
+    const bool cachedReadFailed = endpoint.lastOffset != 0;
+    endpoint.lastOffset = 0;
     endpoint.health = "unavailable";
-    endpoint.lastError = "failed to read current stock code";
+    if (endpoint.lastError.empty())
+      endpoint.lastError = "failed to read current stock code";
+    if (attemptedResolve || cachedReadFailed)
+      session.nextResolveAt = steadyNow + retry;
   }
   StoreEndpoint(endpoint);
-  CloseHandle(process);
 }
 
 void Runtime::ResolveOffset(void* rawProcess, std::uint32_t pid,

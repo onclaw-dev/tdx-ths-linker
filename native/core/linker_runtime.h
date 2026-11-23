@@ -115,12 +115,23 @@ class Runtime {
     TimePoint deadline{};
     bool windowActive = false;
   };
+  struct EndpointSession {
+    void* process = nullptr;
+    std::uint32_t pid = 0;
+    std::uintptr_t base = 0;
+    std::uint32_t size = 0;
+    TimePoint nextDiscoveryAt{};
+    TimePoint nextResolveAt{};
+  };
   void Start();
   void Loop();
   void ProcessCommands(const RuntimeConfig& config);
   void TouchActivity();
   void PromoteDueLocked(CommandLane* lane, TimePoint now);
   CommandLane& Lane(const std::string& target);
+  EndpointSession& Session(const std::string& target);
+  void ResetSession(EndpointSession* session);
+  void ResetSessions();
   void Poll(const RuntimeConfig& config, const EndpointConfig& endpoint);
   void ResolveOffset(void* process, std::uint32_t pid, std::uintptr_t base,
                      std::uint32_t size, const RuntimeConfig& runtime,
@@ -144,6 +155,8 @@ class Runtime {
   std::condition_variable condition_;
   CommandLane thsCommands_;
   CommandLane tdxCommands_;
+  EndpointSession thsSession_;
+  EndpointSession tdxSession_;
   std::deque<std::string> recentRequestOrder_;
   std::unordered_set<std::string> recentRequests_;
   TimePoint activeUntil_{};

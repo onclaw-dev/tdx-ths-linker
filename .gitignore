@@ -15,3 +15,6 @@ node_modules/
 *.zip
 *.pyc
 .DS_Store
+AGENTS.md
+.codex/
+.github/skills

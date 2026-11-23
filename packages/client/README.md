@@ -148,7 +148,7 @@ npx --no-install tdx-ths-linker --json --accept-license set 600825 --target ths 
 
 安装包下载地址：
 
-<https://fin.onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe>
+<http://onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe>
 
 完整接入流程、Origin 授权规则、Python `requests` 示例和 Web 页面代码见 [Web 快速接入文档](examples/web-quickstart/README.md)。
 

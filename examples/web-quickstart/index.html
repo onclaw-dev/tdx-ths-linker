@@ -152,7 +152,7 @@
               <span class="step-number">1</span>
               <h3>安装联动组件</h3>
               <p>下载并运行 Windows 安装包，完成自定义协议注册。</p>
-              <a id="installer" class="button button-primary" href="https://fin.onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe">下载 Windows 联动组件</a>
+              <a id="installer" class="button button-primary" href="http://onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe">下载 Windows 联动组件</a>
             </article>
             <article class="step">
               <span class="step-number">2</span>
@@ -202,9 +202,9 @@
   </div>
 
   <script type="module">
-    import { createStockLinkRuntime, createWebLinker } from "https://cdn.jsdelivr.net/npm/tdx-ths-linker@0.1.4/dist/index.mjs";
+    import { createStockLinkRuntime, createWebLinker } from "https://cdn.jsdelivr.net/npm/tdx-ths-linker@0.1.5/dist/index.mjs";
 
-    const INSTALLER_URL = "https://fin.onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe";
+    const INSTALLER_URL = "http://onclaw.cc/linker/onclaw-tdx-ths-setup-win-x64.exe";
     const byId = (id) => document.getElementById(id);
     const web = createWebLinker({ installerUrl: INSTALLER_URL });
     let runtime;

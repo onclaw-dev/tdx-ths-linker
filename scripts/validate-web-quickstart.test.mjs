@@ -7,10 +7,10 @@ const readme = await readFile(new URL("../examples/web-quickstart/README.md", im
 const projectReadme = await readFile(new URL("../README.md", import.meta.url), "utf8");
 
 test("quickstart uses a pinned npm ESM build and high-level APIs", () => {
-  assert.match(html, /cdn\.jsdelivr\.net\/npm\/tdx-ths-linker@0\.1\.4\/dist\/index\.mjs/);
+  assert.match(html, /cdn\.jsdelivr\.net\/npm\/tdx-ths-linker@0\.1\.5\/dist\/index\.mjs/);
   assert.match(html, /createWebLinker/);
   assert.match(html, /createStockLinkRuntime/);
-  assert.match(html, /https:\/\/fin\.onclaw\.cc\/linker\/onclaw-tdx-ths-setup-win-x64\.exe/);
+  assert.match(html, /http:\/\/onclaw\.cc\/linker\/onclaw-tdx-ths-setup-win-x64\.exe/);
   assert.match(html, /createWebLinker\(\{ installerUrl: INSTALLER_URL \}\)/);
 });
 
@@ -20,7 +20,7 @@ test("quickstart reuses installer consent and demonstrates recovery, writes, and
   assert.match(html, /https:\/\/github\.com\/onclaw-dev\/tdx-ths-linker/);
   assert.match(html, /开源不易[^<]*Star/);
   assert.match(html, /installer_required/);
-  assert.match(html, /id="installer"[^>]*href="https:\/\/fin\.onclaw\.cc\/linker\//);
+  assert.match(html, /id="installer"[^>]*href="http:\/\/onclaw\.cc\/linker\//);
   assert.doesNotMatch(html, /id="installer"[^>]*hidden/);
   assert.match(html, /已安装，唤醒并连接/);
   assert.match(html, /id="set-tdx"/);
@@ -36,7 +36,7 @@ test("quickstart documents localhost and production npm usage", () => {
   assert.match(readme, /http:\/\/localhost:8080/);
   assert.match(readme, /file:\/\//);
   assert.match(readme, /npm install tdx-ths-linker/);
-  assert.match(readme, /fin\.onclaw\.cc\/linker\/onclaw-tdx-ths-setup-win-x64\.exe/);
+  assert.match(readme, /onclaw\.cc\/linker\/onclaw-tdx-ths-setup-win-x64\.exe/);
   assert.match(readme, /生产项目/);
 });
 
