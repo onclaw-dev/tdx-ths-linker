@@ -6,6 +6,24 @@ export type LinkerHealth =
   | "degraded"
   | "unavailable";
 export type LinkerLicenseState = "unaccepted" | "accepted";
+export type LinkerActivityState = "hot" | "warm" | "cool" | "cold";
+export type LinkerCommandState =
+  | "queued" | "dispatching" | "dispatched" | "confirmed"
+  | "failed" | "timed_out" | "superseded";
+
+export interface LinkerCommandStatus {
+  target: LinkerTarget;
+  code: string;
+  clientId: string;
+  requestId: string;
+  state: LinkerCommandState;
+  errorStage: string;
+  message: string;
+  queuedAt: number;
+  dispatchedAt: number;
+  completedAt: number;
+  win32Error: number;
+}
 
 export interface LinkerEndpointState {
   name: LinkerTarget;
@@ -26,11 +44,16 @@ export interface LinkerRuntimeState {
   isSupported: boolean;
   active: boolean;
   lastActivityAt: number;
+  activityState: LinkerActivityState;
+  stateGeneration: number;
+  stale: boolean;
+  refreshedAt: number;
   runtimeHealth: LinkerHealth;
   licenseState: LinkerLicenseState;
   message: string;
   ths: LinkerEndpointState;
   tdx: LinkerEndpointState;
+  lastCommand: LinkerCommandStatus | null;
 }
 
 export interface LinkerInitResult {
@@ -73,4 +96,10 @@ export interface OnclawClient {
   initialize: (licenseAccepted: boolean) => Promise<LinkerInitResult>;
   getState: () => Promise<LinkerRuntimeState>;
   setCode: (target: LinkerTarget, code: string) => Promise<LinkerCommandResult>;
+  getCommandStatus?: (clientId: string, requestId: string) => Promise<LinkerCommandStatus>;
+  setCodeAndWait?: (
+    target: LinkerTarget,
+    code: string,
+    timeoutMs?: number,
+  ) => Promise<LinkerCommandStatus>;
 }

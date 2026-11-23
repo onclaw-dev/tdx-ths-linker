@@ -20,7 +20,7 @@
 #include "resource.h"
 
 #ifndef ONCLAW_TDX_THS_VERSION
-#define ONCLAW_TDX_THS_VERSION "0.1.5"
+#define ONCLAW_TDX_THS_VERSION "0.2.0"
 #endif
 
 namespace {
@@ -234,16 +234,48 @@ std::string EndpointJson(const onclaw_tdx_ths::EndpointState& value) {
          ",\"pid\":" + std::to_string(value.pid) + "}";
 }
 
+std::string CommandJson(const onclaw_tdx_ths::CommandStatus& value) {
+  return "{\"target\":\"" + JsonEscape(value.target) + "\",\"code\":\"" +
+         JsonEscape(value.code) + "\",\"clientId\":\"" +
+         JsonEscape(value.clientId) + "\",\"requestId\":\"" +
+         JsonEscape(value.requestId) + "\",\"state\":\"" +
+         JsonEscape(value.state) + "\",\"errorStage\":\"" +
+         JsonEscape(value.errorStage) + "\",\"message\":\"" +
+         JsonEscape(value.message) + "\",\"queuedAt\":" +
+         std::to_string(value.queuedAt) + ",\"dispatchedAt\":" +
+         std::to_string(value.dispatchedAt) + ",\"completedAt\":" +
+         std::to_string(value.completedAt) + ",\"win32Error\":" +
+         std::to_string(value.win32Error) + "}";
+}
+
 std::string StateJson() {
   const auto value = runtime.State();
   return "{\"initialized\":" + std::string(value.initialized ? "true" : "false") +
          ",\"isSupported\":true,\"active\":" +
          (value.active ? "true" : "false") + ",\"lastActivityAt\":" +
-         std::to_string(value.lastActivityAt) + ",\"runtimeHealth\":\"" +
+         std::to_string(value.lastActivityAt) + ",\"activityState\":\"" +
+         JsonEscape(value.activityState) + "\",\"stateGeneration\":" +
+         std::to_string(value.stateGeneration) + ",\"stale\":" +
+         (value.stale ? "true" : "false") + ",\"refreshedAt\":" +
+         std::to_string(value.refreshedAt) + ",\"runtimeHealth\":\"" +
          JsonEscape(value.runtimeHealth) + "\",\"licenseState\":\"" +
          JsonEscape(value.licenseState) + "\",\"message\":\"" +
          JsonEscape(value.message) + "\",\"ths\":" + EndpointJson(value.ths) +
-         ",\"tdx\":" + EndpointJson(value.tdx) + "}";
+         ",\"tdx\":" + EndpointJson(value.tdx) + ",\"lastCommand\":" +
+         (value.lastCommand ? CommandJson(*value.lastCommand) : "null") + "}";
+}
+
+std::string QueryValue(const std::string& path, const std::string& key) {
+  const auto query = path.find('?');
+  if (query == std::string::npos) return {};
+  std::stringstream parts(path.substr(query + 1));
+  std::string part;
+  while (std::getline(parts, part, '&')) {
+    const auto equals = part.find('=');
+    if (equals != std::string::npos && part.substr(0, equals) == key)
+      return UrlDecode(part.substr(equals + 1));
+  }
+  return {};
 }
 
 std::string Response(int status, const std::string& body,
@@ -292,6 +324,18 @@ std::string Handle(const Request& request) {
   }
   if (request.method == "GET" && request.path == "/v1/state")
     return Response(200, StateJson(), request.origin);
+  if (request.method == "GET" &&
+      request.path.rfind("/v1/command-status?", 0) == 0) {
+    const auto clientId = QueryValue(request.path, "clientId");
+    const auto requestId = QueryValue(request.path, "requestId");
+    if (!SafeIdentifier(clientId) || !SafeIdentifier(requestId))
+      return Response(400, "{\"error\":\"invalid_caller_identity\"}",
+                      request.origin);
+    const auto value = runtime.CommandState(clientId, requestId);
+    return value ? Response(200, CommandJson(*value), request.origin)
+                 : Response(404, "{\"error\":\"command_not_found\"}",
+                            request.origin);
+  }
   if (request.method == "POST" && request.path == "/v1/initialize") {
     const auto accepted = JsonBool(request.body, "licenseAccepted");
     const auto current = runtime.State();

@@ -19,7 +19,14 @@ class FakeTransport:
                 "initialized": True, "isSupported": True, "active": True,
                 "lastActivityAt": 1, "runtimeHealth": "ready", "licenseState": "accepted",
                 "message": "ready", "tdx": endpoint, "ths": {**endpoint, "name": "ths"},
+                "activityState": "hot", "stateGeneration": 1, "stale": False,
+                "refreshedAt": 1, "lastCommand": None,
             }
+        if path.startswith("/v1/command-status?"):
+            return {"target": "tdx", "code": "600825", "clientId": "python-test",
+                    "requestId": "request-confirmed", "state": "confirmed",
+                    "errorStage": "", "message": "confirmed", "queuedAt": 1,
+                    "dispatchedAt": 2, "completedAt": 3, "win32Error": 0}
         return {**body, "ok": True, "accepted": True, "status": "accepted", "message": "accepted"}
 
 
@@ -39,3 +46,11 @@ def test_close_is_idempotent_without_owning_runtime():
     client.close()
     client.close()
     assert client.closed
+
+
+def test_python_client_waits_for_structured_command_status():
+    transport = FakeTransport()
+    client = Client(_transport=transport, _ensure=False, client_id="python-test")
+    result = client.set_code_and_wait("tdx", "600825", timeout=0.5)
+    assert result.state == "confirmed"
+    assert transport.calls[-1][0].startswith("/v1/command-status?")

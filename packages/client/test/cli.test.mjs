@@ -32,13 +32,26 @@ const run = async (argv, states = [state()]) => {
   const writes = [];
   let index = 0;
   let clock = 0;
+  const commands = new Map();
   const client = {
     transport: "agent",
     initialize: async (accepted) => ({ ok: accepted, licenseState: accepted ? "accepted" : "unaccepted", message: accepted ? "ready" : "license", runtimeHealth: accepted ? "ready" : "unavailable" }),
     getState: async () => states[Math.min(index++, states.length - 1)],
     setCode: async (target, code) => {
       writes.push([target, code]);
-      return { ok: true, accepted: true, status: "accepted", target, code, message: "accepted" };
+      const requestId = `request-${writes.length}`;
+      commands.set(requestId, { target, code });
+      return { ok: true, accepted: true, status: "accepted", target, code,
+        clientId: "cli-test", requestId, message: "accepted" };
+    },
+    getCommandStatus: async (_clientId, requestId) => {
+      const command = commands.get(requestId);
+      const current = states[Math.min(index++, states.length - 1)];
+      const confirmed = current[command.target].code === command.code;
+      return { ...command, clientId: "cli-test", requestId,
+        state: confirmed ? "confirmed" : "dispatched", errorStage: "",
+        message: confirmed ? "confirmed" : "pending", queuedAt: 1,
+        dispatchedAt: 2, completedAt: confirmed ? 3 : 0, win32Error: 0 };
     },
   };
   const exitCode = await runCli(argv, {

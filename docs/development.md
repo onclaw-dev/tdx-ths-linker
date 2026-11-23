@@ -71,3 +71,16 @@ python/src/tdx_ths_linker/agent/win-x64/SHA256SUMS.txt
 5. 只将带注册能力的安装包、校验清单和 Web 示例 HTML 部署到网页下载 Release。
 
 云端步骤不重新构建 Agent；npm、PyPI 与 Web 安装包包含同一次构建的 Agent 字节。
+
+## 真实联动验收
+
+涉及扫描、生命周期或写入路径时，在正式替换 canonical Agent 前还应使用已打开的
+TDX 与 THS 完成以下人工验收：
+
+1. 连续联动至少 10 分钟，确认稳定小范围读取且 `lastScanAt` 不周期增长。
+2. 打开代码管理等附属窗口，确认 THS 窗口选择不会误投递；命令必须由读回进入
+   `confirmed`，不能只依据 `accepted`。
+3. 停止客户端轮询，确认立即进入无内存读取的 `warm`；5 分钟关闭句柄，10 分钟
+   清空缓存；分别在 warm/cool/cold 唤醒并核对是否按设计复用或重扫。
+4. 分别重启 TDX、THS，验证 PID/创建时间变化会清除旧缓存并恢复联动。
+5. 记录 THS 版本、窗口类名/标题、命令阶段和 Win32 错误；恢复测试前的股票代码。

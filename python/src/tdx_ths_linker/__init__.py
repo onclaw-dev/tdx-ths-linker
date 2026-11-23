@@ -1,6 +1,6 @@
 from .bootstrap import ensure_agent
 from .client import Client
-from .contracts import CommandResult, EndpointState, InitResult, RuntimeState
+from .contracts import CommandResult, CommandStatus, EndpointState, InitResult, RuntimeState
 from .exceptions import (
     AgentConnectionError,
     AgentLaunchError,
@@ -15,6 +15,7 @@ __all__ = [
     "Client",
     "ClientClosedError",
     "CommandResult",
+    "CommandStatus",
     "EndpointState",
     "InitResult",
     "RuntimeState",
@@ -23,4 +24,4 @@ __all__ = [
     "ensure_agent",
 ]
 
-__version__ = "0.1.5"
+__version__ = "0.2.0"

@@ -23,6 +23,10 @@ const state = (tdxCode, thsCode, available = {}) => ({
   runtimeHealth: "ready",
   licenseState: "accepted",
   message: "ready",
+  activityState: "hot",
+  stateGeneration: 1,
+  stale: false,
+  refreshedAt: 1,
   tdx: endpoint("tdx", tdxCode, available.tdx ?? true),
   ths: endpoint("ths", thsCode, available.ths ?? true),
 });
@@ -109,4 +113,30 @@ test("concurrent immediate polls share one in-flight state request", async () =>
   assert.equal(calls, 1);
   resolveState(state("000001", "600000"));
   await first;
+});
+
+test("stale state cannot establish or advance a linking baseline", async () => {
+  const stale = { ...state("000001", "600000"), stale: true };
+  const fake = fakeClient([stale, state("000001", "600001"), state("000001", "600002")]);
+  const runtime = createStockLinkRuntime({ client: fake.client, mode: "ths-to-tdx" });
+  await runtime.pollNow();
+  await runtime.pollNow();
+  assert.deepEqual(fake.writes, []);
+  await runtime.pollNow();
+  assert.deepEqual(fake.writes, [["tdx", "600002"]]);
+});
+
+test("off mode cancels scheduled state polling", async () => {
+  let calls = 0;
+  const fake = fakeClient([state("000001", "600000")]);
+  const getState = fake.client.getState;
+  fake.client.getState = async () => { calls += 1; return getState(); };
+  const runtime = createStockLinkRuntime({ client: fake.client, mode: "read-only", pollIntervalMs: 5 });
+  runtime.start();
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  runtime.setMode("off");
+  const stoppedAt = calls;
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  runtime.stop();
+  assert.equal(calls, stoppedAt);
 });

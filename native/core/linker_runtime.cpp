@@ -30,19 +30,32 @@ std::vector<std::string> Split(const std::string& value, char delimiter) {
 bool SixDigits(const std::string& code) {
   return code.size() == 6 &&
          std::all_of(code.begin(), code.end(), [](unsigned char ch) {
-           return std::isdigit(ch) != 0;
+           return ch >= '0' && ch <= '9';
          });
 }
 
 std::string Digits(const char* data, std::size_t size, bool fromEnd) {
-  std::string result;
-  for (std::size_t i = 0; i < size; ++i) {
-    if (std::isdigit(static_cast<unsigned char>(data[i])) != 0) {
-      result.push_back(data[i]);
+  std::vector<std::string> matches;
+  for (std::size_t at = 0; at < size;) {
+    if (data[at] < '0' || data[at] > '9') {
+      ++at;
+      continue;
     }
+    const auto begin = at;
+    while (at < size && data[at] >= '0' && data[at] <= '9') ++at;
+    if (at - begin == 6) matches.emplace_back(data + begin, 6);
   }
-  if (result.size() <= 6) return result;
-  return fromEnd ? result.substr(result.size() - 6) : result.substr(0, 6);
+  if (matches.empty()) return {};
+  return fromEnd ? matches.back() : matches.front();
+}
+
+std::uint64_t ProcessCreationTime(HANDLE process) {
+  FILETIME created{}, exited{}, kernel{}, user{};
+  if (!GetProcessTimes(process, &created, &exited, &kernel, &user)) return 0;
+  ULARGE_INTEGER value{};
+  value.LowPart = created.dwLowDateTime;
+  value.HighPart = created.dwHighDateTime;
+  return value.QuadPart;
 }
 
 DWORD FindProcess(const std::vector<std::string>& names) {
@@ -87,16 +100,21 @@ std::uintptr_t FindModule(DWORD pid, const std::string& name, DWORD* size) {
 
 struct WindowSearch {
   DWORD pid;
-  HWND window;
+  std::vector<HWND> windows;
 };
 
 BOOL CALLBACK FindWindowCallback(HWND window, LPARAM value) {
   auto* search = reinterpret_cast<WindowSearch*>(value);
   DWORD pid = 0;
   GetWindowThreadProcessId(window, &pid);
-  if (pid == search->pid && IsWindowVisible(window)) {
-    search->window = window;
-    return FALSE;
+  const auto exStyle = static_cast<LONG_PTR>(GetWindowLongPtrW(window, GWL_EXSTYLE));
+  wchar_t className[256]{};
+  wchar_t title[512]{};
+  if (pid == search->pid && IsWindowVisible(window) &&
+      GetWindow(window, GW_OWNER) == nullptr && (exStyle & WS_EX_TOOLWINDOW) == 0 &&
+      GetClassNameW(window, className, 256) > 0 &&
+      GetWindowTextW(window, title, 512) > 0) {
+    search->windows.push_back(window);
   }
   return TRUE;
 }
@@ -137,7 +155,11 @@ InitResult Runtime::Init(bool licenseAccepted) {
     tdxCommands_ = {};
     recentRequestOrder_.clear();
     recentRequests_.clear();
+    commandOrder_.clear();
+    commandHistory_.clear();
+    pendingConfirmations_.clear();
     activeUntil_ = {};
+    lastBusinessActivity_ = {};
   }
   {
     std::lock_guard lock(mutex_);
@@ -145,6 +167,8 @@ InitResult Runtime::Init(bool licenseAccepted) {
     state_.licenseState = licenseAccepted ? "accepted" : "unaccepted";
     state_.initialized = licenseAccepted;
     state_.runtimeHealth = licenseAccepted ? "initializing" : "unavailable";
+    state_.activityState = licenseAccepted ? "hot" : "cold";
+    state_.stale = true;
     state_.message = licenseAccepted
                          ? "onclaw-tdx-ths runtime initialized"
                          : "accept the noncommercial license before initialization";
@@ -163,7 +187,21 @@ InitResult Runtime::Init(bool licenseAccepted) {
 }
 
 RuntimeState Runtime::State() {
+  std::uint64_t generation = 0;
+  bool needsRefresh = false;
+  {
+    std::lock_guard lock(mutex_);
+    generation = state_.stateGeneration;
+    needsRefresh = state_.stale || state_.activityState != "hot";
+  }
   TouchActivity();
+  if (needsRefresh) {
+    std::unique_lock lock(mutex_);
+    stateCondition_.wait_for(
+        lock, Ms(config_.stateFreshnessMs == 0 ? 500 : config_.stateFreshnessMs),
+        [&] { return state_.stateGeneration > generation || !running_; });
+    if (state_.stateGeneration <= generation) state_.stale = true;
+  }
   return Snapshot();
 }
 
@@ -195,7 +233,7 @@ CommandResult Runtime::Queue(const std::string& target,
             "unsupported target"};
   }
   const auto effectiveRequest =
-      requestId.empty() ? std::string{} : clientId + ":" + requestId;
+      requestId.empty() ? std::string{} : CommandKey(clientId, requestId);
   std::string status;
   {
     std::lock_guard lock(queueMutex_);
@@ -219,6 +257,9 @@ CommandResult Runtime::Queue(const std::string& target,
     auto& lane = Lane(target);
     PromoteDueLocked(&lane, now);
     Command command{target, code, clientId, requestId};
+    CommandStatus commandStatus{target, code, clientId, requestId, "queued"};
+    commandStatus.queuedAt = NowMs();
+    StoreCommandStatus(commandStatus);
     if (!lane.windowActive && !lane.ready) {
       lane.ready = command;
       lane.leadingCode = code;
@@ -233,10 +274,26 @@ CommandResult Runtime::Queue(const std::string& target,
             now + Ms(config_.burstWindowMs == 0 ? 300 : config_.burstWindowMs);
         lane.windowActive = true;
       }
-      if (code == lane.leadingCode)
+      if (lane.trailing) {
+        const auto oldKey = CommandKey(lane.trailing->clientId,
+                                       lane.trailing->requestId);
+        auto old = commandHistory_.find(oldKey);
+        if (old != commandHistory_.end()) {
+          old->second.state = "superseded";
+          old->second.completedAt = NowMs();
+          old->second.message = "command superseded by a newer coalesced value";
+          StoreCommandStatus(old->second);
+        }
+      }
+      if (code == lane.leadingCode) {
         lane.trailing.reset();
-      else
+        commandStatus.state = "superseded";
+        commandStatus.completedAt = NowMs();
+        commandStatus.message = "equivalent leading command already queued";
+        StoreCommandStatus(commandStatus);
+      } else {
         lane.trailing = command;
+      }
       status = "coalesced";
     }
   }
@@ -253,13 +310,15 @@ void Runtime::TouchActivity() {
     if (!state_.initialized) return;
     config = config_;
     state_.active = true;
+    state_.activityState = "hot";
     state_.lastActivityAt = NowMs();
     if (state_.runtimeHealth == "idle") state_.runtimeHealth = "initializing";
   }
   {
     std::lock_guard lock(queueMutex_);
-    activeUntil_ = Clock::now() +
-                   Ms(config.idleTimeoutMs == 0 ? 5000 : config.idleTimeoutMs);
+    lastBusinessActivity_ = Clock::now();
+    activeUntil_ = lastBusinessActivity_ +
+                   Ms(config.hotLeaseMs == 0 ? 10000 : config.hotLeaseMs);
   }
   condition_.notify_all();
 }
@@ -292,6 +351,7 @@ void Runtime::Stop() {
   bool expected = true;
   if (running_.compare_exchange_strong(expected, false)) {
     condition_.notify_all();
+    stateCondition_.notify_all();
     if (worker_.joinable()) worker_.join();
   }
   ResetSessions();
@@ -304,38 +364,46 @@ void Runtime::Loop() {
       std::lock_guard lock(mutex_);
       config = config_;
     }
-    bool active = false;
+    bool pending = false;
+    const auto now = Clock::now();
     {
       std::lock_guard lock(queueMutex_);
-      const auto now = Clock::now();
       PromoteDueLocked(&thsCommands_, now);
       PromoteDueLocked(&tdxCommands_, now);
-      active = now < activeUntil_ || thsCommands_.ready || tdxCommands_.ready;
+      pending = thsCommands_.ready || tdxCommands_.ready ||
+                !pendingConfirmations_.empty();
     }
-    if (!active) {
-      {
-        std::lock_guard lock(mutex_);
-        state_.active = false;
-        if (state_.initialized) state_.runtimeHealth = "idle";
-      }
+    UpdateLifecycle(now, config, pending);
+    CleanupDeferredAllocations(now);
+    bool hot = false;
+    {
+      std::lock_guard lock(mutex_);
+      hot = state_.activityState == "hot";
+    }
+    if (!hot) {
       std::unique_lock lock(queueMutex_);
-      condition_.wait(lock, [this] {
-        return !running_ || Clock::now() < activeUntil_ ||
-               thsCommands_.ready.has_value() || tdxCommands_.ready.has_value();
-      });
+      condition_.wait_for(lock, Ms(100));
       continue;
     }
     ProcessCommands(config);
     Poll(config, config.ths);
     Poll(config, config.tdx);
+    CompleteConfirmations(Clock::now(), config);
     RecomputeHealth();
+    {
+      std::lock_guard lock(mutex_);
+      state_.stale = false;
+      state_.refreshedAt = NowMs();
+      ++state_.stateGeneration;
+    }
+    stateCondition_.notify_all();
     std::unique_lock lock(queueMutex_);
     auto wait = Ms(config.pollMs == 0 ? 350 : config.pollMs);
-    const auto now = Clock::now();
+    const auto waitNow = Clock::now();
     for (const auto* lane : {&thsCommands_, &tdxCommands_}) {
-      if (lane->windowActive && lane->deadline > now) {
+      if (lane->windowActive && lane->deadline > waitNow) {
         wait = (std::min)(wait,
-                          std::chrono::duration_cast<Ms>(lane->deadline - now));
+                          std::chrono::duration_cast<Ms>(lane->deadline - waitNow));
       }
     }
     condition_.wait_for(lock, wait);
@@ -359,12 +427,40 @@ void Runtime::ProcessCommands(const RuntimeConfig& config) {
     }
   }
   for (const auto& command : pending) {
+    CommandStatus status{command.target, command.code, command.clientId,
+                         command.requestId, "dispatching"};
+    status.queuedAt = NowMs();
+    {
+      std::lock_guard lock(queueMutex_);
+      const auto found = commandHistory_.find(CommandKey(command.clientId, command.requestId));
+      if (found != commandHistory_.end()) status.queuedAt = found->second.queuedAt;
+    }
+    std::string error;
+    std::uint32_t win32Error = 0;
+    bool dispatched = true;
     if (config.commandObserver) {
       config.commandObserver(command.target, command.code);
     } else if (command.target == "ths") {
-      ExecuteThs(config.commandTimeoutMs, command.code);
+      dispatched = ExecuteThs(config.commandTimeoutMs, command.code, &error,
+                              &win32Error);
     } else {
-      ExecuteTdx(command.code);
+      dispatched = ExecuteTdx(command.code, &error, &win32Error);
+    }
+    status.dispatchedAt = NowMs();
+    if (dispatched) {
+      status.state = "dispatched";
+      status.message = "command dispatched; awaiting readback";
+      std::lock_guard lock(queueMutex_);
+      StoreCommandStatus(status);
+      pendingConfirmations_.push_back(status);
+    } else {
+      status.state = "failed";
+      status.errorStage = "dispatch";
+      status.message = error;
+      status.win32Error = win32Error;
+      status.completedAt = NowMs();
+      std::lock_guard lock(queueMutex_);
+      StoreCommandStatus(status);
     }
   }
 }
@@ -374,20 +470,33 @@ Runtime::EndpointSession& Runtime::Session(const std::string& target) {
 }
 
 void Runtime::ResetSession(EndpointSession* session) {
-  if (session->process) CloseHandle(static_cast<HANDLE>(session->process));
+  CloseSessionHandle(session);
   *session = {};
+}
+
+void Runtime::CloseSessionHandle(EndpointSession* session) {
+  if (session->process) CloseHandle(static_cast<HANDLE>(session->process));
+  session->process = nullptr;
 }
 
 void Runtime::ResetSessions() {
   ResetSession(&thsSession_);
   ResetSession(&tdxSession_);
+  while (!deferredAllocations_.empty()) {
+    const auto allocation = deferredAllocations_.front();
+    deferredAllocations_.pop_front();
+    if (allocation.process && allocation.address)
+      VirtualFreeEx(static_cast<HANDLE>(allocation.process), allocation.address,
+                    0, MEM_RELEASE);
+    if (allocation.process) CloseHandle(static_cast<HANDLE>(allocation.process));
+  }
 }
 
 void Runtime::Poll(const RuntimeConfig& runtime,
                    const EndpointConfig& endpointConfig) {
   auto& session = Session(endpointConfig.name);
   const auto steadyNow = Clock::now();
-  const auto retry = Ms(runtime.scanRetryMs == 0 ? 4000 : runtime.scanRetryMs);
+  const auto scanRetry = runtime.scanRetryMs == 0 ? 4000 : runtime.scanRetryMs;
 
   if (session.process &&
       WaitForSingleObject(static_cast<HANDLE>(session.process), 0) !=
@@ -398,38 +507,69 @@ void Runtime::Poll(const RuntimeConfig& runtime,
 
   if (!session.process) {
     if (steadyNow < session.nextDiscoveryAt) return;
-    const auto pid = FindProcess(endpointConfig.processes);
+    auto pid = session.pid;
+    HANDLE process = nullptr;
+    if (pid) {
+      process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION |
+                                SYNCHRONIZE,
+                            FALSE, pid);
+      if (!process || (session.creationTime != 0 &&
+                       ProcessCreationTime(process) != session.creationTime)) {
+        if (process) CloseHandle(process);
+        process = nullptr;
+        pid = 0;
+        ResetSession(&session);
+      }
+    }
+    if (!pid) pid = FindProcess(endpointConfig.processes);
     if (!pid) {
-      session.nextDiscoveryAt = steadyNow + retry;
+      session.discoveryDelayMs = session.discoveryDelayMs == 0
+          ? (runtime.discoveryRetryMinMs == 0 ? 250 : runtime.discoveryRetryMinMs)
+          : (std::min)(session.discoveryDelayMs * 2,
+                       runtime.discoveryRetryMaxMs == 0 ? 2000u
+                                                        : runtime.discoveryRetryMaxMs);
+      session.nextDiscoveryAt = steadyNow + Ms(session.discoveryDelayMs);
       SetUnavailable(endpointConfig.name, "target process not found");
       return;
     }
     DWORD size = 0;
     const auto base = FindModule(pid, endpointConfig.moduleName, &size);
     if (!base || !size) {
-      session.nextDiscoveryAt = steadyNow + retry;
+      session.nextDiscoveryAt = steadyNow + Ms(runtime.discoveryRetryMinMs == 0
+                                                   ? 250
+                                                   : runtime.discoveryRetryMinMs);
       SetUnavailable(endpointConfig.name, "target module not found");
+      if (process) CloseHandle(process);
       return;
     }
-    const auto process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION |
-                                         SYNCHRONIZE,
-                                     FALSE, pid);
+    if (!process)
+      process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION |
+                                SYNCHRONIZE,
+                            FALSE, pid);
     if (!process) {
-      session.nextDiscoveryAt = steadyNow + retry;
+      session.nextDiscoveryAt = steadyNow + Ms(runtime.discoveryRetryMinMs == 0
+                                                   ? 250
+                                                   : runtime.discoveryRetryMinMs);
       SetUnavailable(endpointConfig.name, "failed to open target process");
       return;
     }
+    const bool reused = session.pid == pid && session.creationTime != 0 &&
+                        session.creationTime == ProcessCreationTime(process);
     session.process = process;
     session.pid = pid;
     session.base = base;
     session.size = size;
+    session.creationTime = ProcessCreationTime(process);
+    session.discoveryDelayMs = 0;
     session.nextDiscoveryAt = {};
     session.nextResolveAt = {};
 
     auto fresh = CopyEndpoint(endpointConfig.name);
     fresh.pid = pid;
-    fresh.lastOffset = 0;
-    fresh.lastScanAt = 0;
+    if (!reused) {
+      fresh.lastOffset = 0;
+      fresh.lastScanAt = 0;
+    }
     fresh.available = false;
     fresh.usingFallback = false;
     fresh.directRead = endpointConfig.directRead;
@@ -440,6 +580,29 @@ void Runtime::Poll(const RuntimeConfig& runtime,
 
   auto endpoint = CopyEndpoint(endpointConfig.name);
   const auto now = NowMs();
+  if (endpoint.lastOffset && session.signatureAddress != 0 &&
+      steadyNow >= session.nextSignatureAt) {
+    std::vector<std::uint8_t> current(session.signatureBytes.size());
+    SIZE_T signatureRead = 0;
+    bool valid = ReadProcessMemory(
+                     static_cast<HANDLE>(session.process),
+                     reinterpret_cast<const void*>(session.signatureAddress),
+                     current.data(), current.size(), &signatureRead) &&
+                 signatureRead == current.size();
+    for (std::size_t i = 0; valid && i < current.size(); ++i) {
+      if (session.signatureMask[i] && current[i] != session.signatureBytes[i])
+        valid = false;
+    }
+    session.nextSignatureAt = steadyNow + Ms(30000);
+    if (!valid) {
+      endpoint.lastOffset = 0;
+      endpoint.lastError = "cached pattern signature changed";
+      session.nextResolveAt = steadyNow;
+      session.signatureAddress = 0;
+      session.signatureBytes.clear();
+      session.signatureMask.clear();
+    }
+  }
   bool attemptedResolve = false;
   if (!endpoint.lastOffset && steadyNow >= session.nextResolveAt) {
     ResolveOffset(session.process, session.pid, session.base, session.size,
@@ -458,14 +621,38 @@ void Runtime::Poll(const RuntimeConfig& runtime,
     endpoint.lastError.clear();
     endpoint.updatedAt = now;
     session.nextResolveAt = {};
+    session.resolveDelayMs = 0;
+    session.readFailures = 0;
+    session.firstReadFailureAt = {};
   } else {
     const bool cachedReadFailed = endpoint.lastOffset != 0;
-    endpoint.lastOffset = 0;
+    if (cachedReadFailed) {
+      if (session.readFailures++ == 0) session.firstReadFailureAt = steadyNow;
+      const auto failureAge = std::chrono::duration_cast<Ms>(
+          steadyNow - session.firstReadFailureAt);
+      if (session.readFailures < (runtime.readFailureThreshold == 0
+                                      ? 3
+                                      : runtime.readFailureThreshold) &&
+          failureAge < Ms(1000)) {
+        endpoint.health = "degraded";
+        endpoint.available = false;
+        endpoint.lastError = "transient stock-code read failure";
+        StoreEndpoint(endpoint);
+        return;
+      }
+      endpoint.lastOffset = 0;
+    }
     endpoint.health = "unavailable";
     if (endpoint.lastError.empty())
       endpoint.lastError = "failed to read current stock code";
-    if (attemptedResolve || cachedReadFailed)
-      session.nextResolveAt = steadyNow + retry;
+    if (attemptedResolve || cachedReadFailed) {
+      session.resolveDelayMs = session.resolveDelayMs == 0
+          ? scanRetry
+          : (std::min)(session.resolveDelayMs * 2,
+                       runtime.scanRetryMaxMs == 0 ? 60000u
+                                                   : runtime.scanRetryMaxMs);
+      session.nextResolveAt = steadyNow + Ms(session.resolveDelayMs);
+    }
   }
   StoreEndpoint(endpoint);
 }
@@ -478,32 +665,30 @@ void Runtime::ResolveOffset(void* rawProcess, std::uint32_t pid,
   endpoint->lastScanAt = NowMs();
   endpoint->pid = pid;
   endpoint->directRead = config.directRead;
-  std::vector<std::uint8_t> data(size);
-  SIZE_T read = 0;
   const auto process = static_cast<HANDLE>(rawProcess);
-  if (ReadProcessMemory(process, reinterpret_cast<const void*>(base),
-                        data.data(), size, &read)) {
-    data.resize(read);
-    const auto tokens = Split(config.pattern, ' ');
-    std::vector<int> pattern;
-    for (const auto& token : tokens) {
-      if (token == "?" || token == "??") {
-        pattern.push_back(-1);
-      } else {
-        char* end = nullptr;
-        const auto value = std::strtoul(token.c_str(), &end, 16);
-        if (!end || *end) {
-          pattern.clear();
-          break;
-        }
-        pattern.push_back(static_cast<int>(value));
+  const auto tokens = Split(config.pattern, ' ');
+  std::vector<int> pattern;
+  for (const auto& token : tokens) {
+    if (token == "?" || token == "??") {
+      pattern.push_back(-1);
+    } else {
+      char* end = nullptr;
+      const auto value = std::strtoul(token.c_str(), &end, 16);
+      if (!end || *end) {
+        pattern.clear();
+        break;
       }
+      pattern.push_back(static_cast<int>(value));
     }
-    const auto deadline = Clock::now() + Ms(runtime.scanTimeoutMs);
-    for (std::size_t at = 0;
-         !pattern.empty() && at + pattern.size() <= data.size() &&
-         Clock::now() < deadline;
-         ++at) {
+  }
+  const auto deadline = Clock::now() +
+                        Ms(runtime.scanTimeoutMs == 0 ? 2500
+                                                      : runtime.scanTimeoutMs);
+  const auto scanBlock = [&](std::uintptr_t blockBase,
+                             const std::vector<std::uint8_t>& data) {
+    for (std::size_t at = 0; !pattern.empty() &&
+                             at + pattern.size() <= data.size() &&
+                             Clock::now() < deadline; ++at) {
       bool match = true;
       for (std::size_t i = 0; i < pattern.size(); ++i) {
         if (pattern[i] >= 0 && data[at + i] != pattern[i]) {
@@ -516,22 +701,104 @@ void Runtime::ResolveOffset(void* rawProcess, std::uint32_t pid,
       if (immediate + 4 <= data.size()) {
         std::uint32_t address = 0;
         std::memcpy(&address, data.data() + immediate, 4);
-        endpoint->lastOffset = address - static_cast<std::uint32_t>(base);
-        endpoint->directRead = config.name == "tdx";
-        endpoint->usingFallback = false;
-        endpoint->lastError.clear();
-        return;
+        if (address < static_cast<std::uint32_t>(base) ||
+            address - static_cast<std::uint32_t>(base) >= size)
+          continue;
+        EndpointState candidate = *endpoint;
+        candidate.lastOffset = address - static_cast<std::uint32_t>(base);
+        candidate.directRead = config.name == "tdx";
+        candidate.usingFallback = false;
+        if (!ReadCode(rawProcess, base, config, candidate).empty()) {
+          *endpoint = candidate;
+          endpoint->lastError.clear();
+          auto& session = Session(config.name);
+          session.signatureAddress = blockBase + at;
+          session.signatureBytes.assign(data.begin() + at,
+                                        data.begin() + at + pattern.size());
+          session.signatureMask.clear();
+          for (const auto value : pattern)
+            session.signatureMask.push_back(value >= 0);
+          session.nextSignatureAt = Clock::now() + Ms(30000);
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  std::vector<std::uint8_t> headers(16384);
+  SIZE_T headerRead = 0;
+  if (!pattern.empty() &&
+      ReadProcessMemory(process, reinterpret_cast<const void*>(base),
+                        headers.data(), headers.size(), &headerRead)) {
+    headers.resize(headerRead);
+    if (headers.size() >= sizeof(IMAGE_DOS_HEADER)) {
+      const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(headers.data());
+      const auto ntAt = static_cast<std::size_t>(dos->e_lfanew);
+      if (dos->e_magic == IMAGE_DOS_SIGNATURE &&
+          ntAt + sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER) <= headers.size()) {
+        const auto signature = *reinterpret_cast<const DWORD*>(headers.data() + ntAt);
+        const auto* file = reinterpret_cast<const IMAGE_FILE_HEADER*>(
+            headers.data() + ntAt + sizeof(DWORD));
+        const auto sectionAt = ntAt + sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER) +
+                               file->SizeOfOptionalHeader;
+        if (signature == IMAGE_NT_SIGNATURE &&
+            sectionAt + file->NumberOfSections * sizeof(IMAGE_SECTION_HEADER) <=
+                headers.size()) {
+          const auto* sections = reinterpret_cast<const IMAGE_SECTION_HEADER*>(
+              headers.data() + sectionAt);
+          constexpr std::size_t kChunk = 1024 * 1024;
+          for (WORD i = 0; i < file->NumberOfSections && Clock::now() < deadline;
+               ++i) {
+            if ((sections[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0)
+              continue;
+            const auto sectionRva = sections[i].VirtualAddress;
+            const auto virtualSize =
+                static_cast<std::uint32_t>(sections[i].Misc.VirtualSize);
+            const auto availableSize = static_cast<std::uint32_t>(
+                size > sectionRva ? size - sectionRva : 0u);
+            const auto sectionSize = (std::min)(virtualSize, availableSize);
+            for (std::size_t offset = 0; offset < sectionSize &&
+                                         Clock::now() < deadline;) {
+              const auto wanted = (std::min)(kChunk + pattern.size(),
+                                              sectionSize - offset);
+              std::vector<std::uint8_t> data(wanted);
+              SIZE_T read = 0;
+              if (ReadProcessMemory(
+                      process,
+                      reinterpret_cast<const void*>(base + sectionRva + offset),
+                      data.data(), data.size(), &read)) {
+                data.resize(read);
+                if (scanBlock(base + sectionRva + offset, data)) return;
+              }
+              offset += (std::min)(kChunk, sectionSize - offset);
+            }
+          }
+        }
       }
     }
   }
-  if (!config.fallbacks.empty()) {
-    endpoint->lastOffset = config.fallbacks.front();
-    endpoint->usingFallback = true;
-    endpoint->lastError = "dynamic scan failed, using fallback offset";
-  } else {
-    endpoint->lastOffset = 0;
-    endpoint->lastError = "dynamic scan failed";
+  for (const auto fallback : config.fallbacks) {
+    EndpointState candidate = *endpoint;
+    candidate.lastOffset = fallback;
+    candidate.directRead = config.directRead;
+    candidate.usingFallback = true;
+    if (!ReadCode(rawProcess, base, config, candidate).empty()) {
+      *endpoint = candidate;
+      endpoint->lastError = "dynamic scan failed, using validated fallback offset";
+      auto& session = Session(config.name);
+      session.signatureAddress = 0;
+      session.signatureBytes.clear();
+      session.signatureMask.clear();
+      return;
+    }
   }
+  endpoint->lastOffset = 0;
+  endpoint->lastError = "dynamic scan and fallback validation failed";
+  auto& session = Session(config.name);
+  session.signatureAddress = 0;
+  session.signatureBytes.clear();
+  session.signatureMask.clear();
 }
 
 std::string Runtime::ReadCode(void* rawProcess, std::uintptr_t base,
@@ -566,23 +833,30 @@ std::string Runtime::ReadCode(void* rawProcess, std::uintptr_t base,
 }
 
 void* Runtime::FindMainWindow(std::uint32_t pid) {
-  WindowSearch search{pid, nullptr};
+  WindowSearch search{pid, {}};
   EnumWindows(FindWindowCallback, reinterpret_cast<LPARAM>(&search));
-  return search.window;
+  return search.windows.size() == 1 ? search.windows.front() : nullptr;
 }
 
-void Runtime::ExecuteThs(std::uint32_t timeoutMs, const std::string& code) {
+bool Runtime::ExecuteThs(std::uint32_t timeoutMs, const std::string& code,
+                         std::string* error, std::uint32_t* win32Error) {
   const auto pid = FindProcess({"hexin.exe"});
   if (!pid) {
-    SetError("ths", "ths process not found for command dispatch");
-    return;
+    *error = "ths process not found for command dispatch";
+    return false;
+  }
+  if (deferredAllocations_.size() >= 16) {
+    *error = "ths deferred command cleanup queue is full";
+    return false;
   }
   const auto process = OpenProcess(
-      PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_QUERY_INFORMATION,
+      PROCESS_VM_OPERATION | PROCESS_VM_WRITE |
+          PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
       FALSE, pid);
   if (!process) {
-    SetError("ths", "failed to open ths process for command dispatch");
-    return;
+    *win32Error = GetLastError();
+    *error = "failed to open ths process for command dispatch";
+    return false;
   }
   const unsigned char prefix =
       code[0] == '6' ? 0x11
@@ -598,22 +872,36 @@ void Runtime::ExecuteThs(std::uint32_t timeoutMs, const std::string& code) {
   if (!remote ||
       !WriteProcessMemory(process, remote, payload.data(), payload.size(),
                           &written)) {
-    SetError("ths", "failed to allocate or write ths command");
+    *win32Error = GetLastError();
+    *error = "failed to allocate or write ths command";
+    if (remote) VirtualFreeEx(process, remote, 0, MEM_RELEASE);
+    CloseHandle(process);
+    return false;
   } else {
     DWORD_PTR ignored = 0;
     const auto window = static_cast<HWND>(FindMainWindow(pid));
-    if (!window ||
-        !SendMessageTimeoutA(window, 1168, 0,
-                             reinterpret_cast<LPARAM>(remote),
+    if (!window) {
+      *error = "ths compatible top-level window is missing or ambiguous";
+      VirtualFreeEx(process, remote, 0, MEM_RELEASE);
+      CloseHandle(process);
+      return false;
+    }
+    if (!SendMessageTimeoutA(window, 1168, 0, reinterpret_cast<LPARAM>(remote),
                              SMTO_ABORTIFHUNG, timeoutMs, &ignored)) {
-      SetError("ths", "ths command timed out");
+      *win32Error = GetLastError();
+      *error = "ths command message timed out; cleanup deferred";
+      deferredAllocations_.push_back(
+          {process, remote, Clock::now() + Ms(30000)});
+      return false;
     }
     VirtualFreeEx(process, remote, 0, MEM_RELEASE);
   }
   CloseHandle(process);
+  return true;
 }
 
-void Runtime::ExecuteTdx(const std::string& code) {
+bool Runtime::ExecuteTdx(const std::string& code, std::string* error,
+                         std::uint32_t* win32Error) {
   const std::string value =
       (code[0] == '6' ? "7" : ((code[0] == '0' || code[0] == '3') ? "6" : "4")) +
       code;
@@ -622,11 +910,15 @@ void Runtime::ExecuteTdx(const std::string& code) {
     if (!message ||
         !PostMessageA(HWND_BROADCAST, message,
                       static_cast<WPARAM>(std::stoul(value)), 0)) {
-      SetError("tdx", "failed to dispatch tdx command");
+      *win32Error = GetLastError();
+      *error = "failed to dispatch tdx command";
+      return false;
     }
   } catch (...) {
-    SetError("tdx", "invalid tdx command code");
+    *error = "invalid tdx command code";
+    return false;
   }
+  return true;
 }
 
 EndpointState Runtime::CopyEndpoint(const std::string& name) {
@@ -649,19 +941,138 @@ void Runtime::SetUnavailable(const std::string& name,
   StoreEndpoint(value);
 }
 
-void Runtime::SetError(const std::string& name, const std::string& error) {
-  auto value = CopyEndpoint(name);
-  value.lastError = error;
-  if (value.health == "ready") value.health = "degraded";
-  StoreEndpoint(value);
-}
-
 void Runtime::RecomputeHealth() {
   std::lock_guard lock(mutex_);
   state_.active = true;
-  const bool ready = state_.ths.health == "ready" || state_.tdx.health == "ready";
+  const bool thsReady = state_.ths.health == "ready";
+  const bool tdxReady = state_.tdx.health == "ready";
+  const bool degraded = state_.ths.health == "degraded" ||
+                        state_.tdx.health == "degraded" ||
+                        state_.ths.available || state_.tdx.available;
   const bool fallback = state_.ths.usingFallback || state_.tdx.usingFallback;
-  state_.runtimeHealth = ready ? (fallback ? "degraded" : "ready") : "degraded";
+  state_.runtimeHealth = thsReady && tdxReady && !fallback
+                             ? "ready"
+                             : (degraded ? "degraded" : "unavailable");
+}
+
+std::string Runtime::CommandKey(const std::string& clientId,
+                                const std::string& requestId) const {
+  return std::to_string(clientId.size()) + ":" + clientId + requestId;
+}
+
+void Runtime::StoreCommandStatus(const CommandStatus& status) {
+  const auto key = CommandKey(status.clientId, status.requestId);
+  if (commandHistory_.find(key) == commandHistory_.end()) commandOrder_.push_back(key);
+  commandHistory_[key] = status;
+  const auto capacity = config_.dedupeCapacity == 0 ? 256 : config_.dedupeCapacity;
+  while (commandOrder_.size() > capacity) {
+    commandHistory_.erase(commandOrder_.front());
+    commandOrder_.pop_front();
+  }
+  {
+    std::lock_guard lock(mutex_);
+    state_.lastCommand = status;
+  }
+}
+
+std::optional<CommandStatus> Runtime::CommandState(
+    const std::string& clientId, const std::string& requestId) {
+  std::lock_guard lock(queueMutex_);
+  const auto found = commandHistory_.find(CommandKey(clientId, requestId));
+  return found == commandHistory_.end()
+             ? std::optional<CommandStatus>{}
+             : std::optional<CommandStatus>{found->second};
+}
+
+void Runtime::CompleteConfirmations(TimePoint now,
+                                    const RuntimeConfig& config) {
+  std::lock_guard lock(queueMutex_);
+  for (auto at = pendingConfirmations_.begin();
+       at != pendingConfirmations_.end();) {
+    const auto endpoint = CopyEndpoint(at->target);
+    if (endpoint.available && endpoint.code == at->code) {
+      at->state = "confirmed";
+      at->completedAt = NowMs();
+      at->message = "target code confirmed by readback";
+      StoreCommandStatus(*at);
+      at = pendingConfirmations_.erase(at);
+      continue;
+    }
+    const auto timeout = config.commandConfirmMs == 0 ? 10000
+                                                       : config.commandConfirmMs;
+    if (at->dispatchedAt != 0 && NowMs() - at->dispatchedAt >= timeout) {
+      at->state = "timed_out";
+      at->errorStage = "confirmation";
+      at->completedAt = NowMs();
+      at->message = "target code confirmation timed out";
+      StoreCommandStatus(*at);
+      at = pendingConfirmations_.erase(at);
+      continue;
+    }
+    ++at;
+  }
+}
+
+void Runtime::CleanupDeferredAllocations(TimePoint now) {
+  for (auto at = deferredAllocations_.begin(); at != deferredAllocations_.end();) {
+    const auto process = static_cast<HANDLE>(at->process);
+    if (now < at->releaseAt &&
+        WaitForSingleObject(process, 0) == WAIT_TIMEOUT) {
+      ++at;
+      continue;
+    }
+    VirtualFreeEx(process, at->address, 0, MEM_RELEASE);
+    CloseHandle(process);
+    at = deferredAllocations_.erase(at);
+  }
+}
+
+void Runtime::UpdateLifecycle(TimePoint now, const RuntimeConfig& config,
+                              bool hasPendingCommands) {
+  std::string next = "cold";
+  TimePoint last;
+  TimePoint activeUntil;
+  {
+    std::lock_guard lock(queueMutex_);
+    last = lastBusinessActivity_;
+    activeUntil = activeUntil_;
+  }
+  if (hasPendingCommands || now < activeUntil) {
+    next = "hot";
+  } else if (last != TimePoint{}) {
+    const auto elapsed = std::chrono::duration_cast<Ms>(now - last).count();
+    if (elapsed < (config.warmHandleMs == 0 ? 300000
+                                            : config.warmHandleMs))
+      next = "warm";
+    else if (elapsed < (config.coldCacheMs == 0 ? 600000
+                                                : config.coldCacheMs))
+      next = "cool";
+  }
+
+  std::string previous;
+  {
+    std::lock_guard lock(mutex_);
+    previous = state_.activityState;
+    state_.activityState = next;
+    state_.active = next == "hot";
+    if (next != "hot") {
+      state_.stale = true;
+      state_.runtimeHealth = "idle";
+    }
+  }
+  if (next == "cool" && previous != "cool") {
+    CloseSessionHandle(&thsSession_);
+    CloseSessionHandle(&tdxSession_);
+  } else if (next == "cold" && previous != "cold") {
+    ResetSessions();
+    std::lock_guard lock(mutex_);
+    for (auto* endpoint : {&state_.ths, &state_.tdx}) {
+      endpoint->pid = 0;
+      endpoint->lastOffset = 0;
+      endpoint->available = false;
+      endpoint->health = "idle";
+    }
+  }
 }
 
 }  // namespace onclaw_tdx_ths

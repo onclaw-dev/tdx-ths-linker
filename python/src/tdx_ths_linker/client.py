@@ -1,11 +1,13 @@
 import json
+import time
 import uuid
 from typing import Any, Dict, Optional
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .bootstrap import ensure_agent
-from .contracts import CommandResult, EndpointState, InitResult, RuntimeState, Target
+from .contracts import CommandResult, CommandStatus, EndpointState, InitResult, RuntimeState, Target
 from .exceptions import AgentConnectionError, ClientClosedError
 
 
@@ -44,6 +46,18 @@ def _endpoint(value: Dict[str, Any]) -> EndpointState:
         using_fallback=bool(value.get("usingFallback", False)),
         direct_read=bool(value.get("directRead", False)),
         pid=int(value.get("pid", 0)),
+    )
+
+
+def _command_status(value: Dict[str, Any]) -> CommandStatus:
+    return CommandStatus(
+        target=value.get("target", ""), code=value.get("code", ""),
+        client_id=value.get("clientId", ""), request_id=value.get("requestId", ""),
+        state=value.get("state", ""), error_stage=value.get("errorStage", ""),
+        message=value.get("message", ""), queued_at=int(value.get("queuedAt", 0)),
+        dispatched_at=int(value.get("dispatchedAt", 0)),
+        completed_at=int(value.get("completedAt", 0)),
+        win32_error=int(value.get("win32Error", 0)),
     )
 
 
@@ -93,11 +107,19 @@ class Client:
             supported=bool(value.get("isSupported")),
             active=bool(value.get("active")),
             last_activity_at=int(value.get("lastActivityAt", 0)),
+            activity_state=value.get("activityState", "cold"),
+            state_generation=int(value.get("stateGeneration", 0)),
+            stale=bool(value.get("stale", False)),
+            refreshed_at=int(value.get("refreshedAt", 0)),
             runtime_health=value.get("runtimeHealth", "unavailable"),
             license_state=value.get("licenseState", "unaccepted"),
             message=value.get("message", ""),
             ths=_endpoint(value.get("ths", {})),
             tdx=_endpoint(value.get("tdx", {})),
+            last_command=(
+                _command_status(value["lastCommand"])
+                if isinstance(value.get("lastCommand"), dict) else None
+            ),
         )
 
     def set_code(self, target: Target, code: str) -> CommandResult:
@@ -127,6 +149,27 @@ class Client:
             request_id=value.get("requestId", request_id),
             message=value.get("message", ""),
         )
+
+    def get_command_status(self, client_id: str, request_id: str) -> CommandStatus:
+        self._require_open()
+        query = urlencode({"clientId": client_id, "requestId": request_id})
+        return _command_status(self._transport.request(f"/v1/command-status?{query}"))
+
+    def set_code_and_wait(
+        self, target: Target, code: str, timeout: float = 10.0
+    ) -> CommandStatus:
+        result = self.set_code(target, code)
+        if not result.accepted:
+            raise RuntimeError(result.message or result.status)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() <= deadline:
+            status = self.get_command_status(result.client_id, result.request_id)
+            if status.state == "confirmed":
+                return status
+            if status.state in {"failed", "timed_out", "superseded"}:
+                raise RuntimeError(status.message or status.state)
+            time.sleep(0.1)
+        raise TimeoutError("target code confirmation timed out")
 
     def close(self) -> None:
         self._closed = True

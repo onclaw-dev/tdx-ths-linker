@@ -8,7 +8,7 @@
     "start": "electron ."
   },
   "dependencies": {
-    "tdx-ths-linker": "0.1.5"
+    "tdx-ths-linker": "0.2.0"
   },
   "devDependencies": {
     "electron": "39.2.0"

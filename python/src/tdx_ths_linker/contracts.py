@@ -25,11 +25,16 @@ class RuntimeState:
     supported: bool
     active: bool
     last_activity_at: int
+    activity_state: str
+    state_generation: int
+    stale: bool
+    refreshed_at: int
     runtime_health: str
     license_state: str
     message: str
     ths: EndpointState
     tdx: EndpointState
+    last_command: "CommandStatus | None"
 
 
 @dataclass(frozen=True)
@@ -50,3 +55,18 @@ class CommandResult:
     client_id: str
     request_id: str
     message: str
+
+
+@dataclass(frozen=True)
+class CommandStatus:
+    target: str
+    code: str
+    client_id: str
+    request_id: str
+    state: str
+    error_stage: str
+    message: str
+    queued_at: int
+    dispatched_at: int
+    completed_at: int
+    win32_error: int

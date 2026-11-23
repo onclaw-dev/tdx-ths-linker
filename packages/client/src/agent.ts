@@ -1,5 +1,7 @@
 import type {
   LinkerConnectionResult,
+  LinkerCommandResult,
+  LinkerCommandStatus,
   LinkerPreparedConnection,
   LinkerTarget,
   OnclawClient,
@@ -59,6 +61,16 @@ export function createAgentClient(options: AgentClientOptions = {}): OnclawClien
     };
   };
 
+  const setCode = (target: LinkerTarget, code: string): Promise<LinkerCommandResult> =>
+    call("/v1/set-code", {
+      method: "POST",
+      body: JSON.stringify({ target, code, clientId, requestId: `request-${identifier()}` }),
+    });
+
+  const getCommandStatus = (caller: string, requestId: string): Promise<LinkerCommandStatus> =>
+    call(`/v1/command-status?clientId=${encodeURIComponent(caller)}&requestId=${encodeURIComponent(requestId)}`,
+      { method: "GET" });
+
   return {
     transport: "agent",
     ...(origin ? {
@@ -105,10 +117,20 @@ export function createAgentClient(options: AgentClientOptions = {}): OnclawClien
         body: JSON.stringify({ licenseAccepted }),
       }),
     getState: () => call("/v1/state", { method: "GET" }),
-    setCode: (target, code) =>
-      call("/v1/set-code", {
-        method: "POST",
-        body: JSON.stringify({ target, code, clientId, requestId: `request-${identifier()}` }),
-      }),
+    setCode,
+    getCommandStatus,
+    setCodeAndWait: async (target, code, timeoutMs = 10_000) => {
+      const submitted = await setCode(target, code);
+      if (!submitted.accepted) throw new Error(submitted.message || submitted.status);
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() <= deadline) {
+        const status = await getCommandStatus(submitted.clientId, submitted.requestId);
+        if (status.state === "confirmed") return status;
+        if (["failed", "timed_out", "superseded"].includes(status.state))
+          throw new Error(status.message || status.state);
+        await new Promise((resolve) => globalThis.setTimeout(resolve, 100));
+      }
+      throw new Error("target code confirmation timed out");
+    },
   };
 }

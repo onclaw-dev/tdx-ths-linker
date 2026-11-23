@@ -161,15 +161,23 @@ export async function runCli(argv: string[], dependencies: CliDependencies): Pro
       if (rejected.length) throw new CliError(CLI_EXIT.rejected, "command_rejected", "One or more targets rejected the command", { targets: rejected, commands });
       data = { code: args.code, targets, commands, confirmed: false };
       if (args.wait) {
+        if (!client.getCommandStatus)
+          throw new CliError(CLI_EXIT.agent, "command_status_unavailable", "Agent client does not support command status queries");
+        const getCommandStatus = client.getCommandStatus;
         const deadline = now() + args.timeoutMs;
         while (true) {
-          state = await client.getState();
-          const confirmedTargets = targets.filter((target) => state[target].code === args.code);
+          const statuses = Object.fromEntries(await Promise.all(targets.map(async (target) => {
+            const command = commands[target];
+            return [target, await getCommandStatus(command.clientId, command.requestId)];
+          })));
+          const confirmedTargets = targets.filter((target) => statuses[target].state === "confirmed");
           if (confirmedTargets.length === targets.length) {
-            data = { ...data, confirmed: true, state: Object.fromEntries(targets.map((target) => [target, safeEndpoint(state, target)])) };
+            data = { ...data, confirmed: true, statuses };
             break;
           }
-          if (now() >= deadline) throw new CliError(CLI_EXIT.timeout, "confirmation_timeout", "Timed out waiting for requested targets to report the code", { code: args.code, confirmedTargets, state: Object.fromEntries(targets.map((target) => [target, safeEndpoint(state, target)])) });
+          const terminalFailure = targets.find((target) => ["failed", "timed_out", "superseded"].includes(statuses[target].state));
+          if (terminalFailure) throw new CliError(CLI_EXIT.timeout, "confirmation_failed", statuses[terminalFailure].message, { code: args.code, statuses });
+          if (now() >= deadline) throw new CliError(CLI_EXIT.timeout, "confirmation_timeout", "Timed out waiting for requested targets to confirm the code", { code: args.code, confirmedTargets, statuses });
           await sleep(Math.min(args.pollIntervalMs, Math.max(0, deadline - now())));
         }
       }

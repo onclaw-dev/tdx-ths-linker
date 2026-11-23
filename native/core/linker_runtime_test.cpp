@@ -45,7 +45,10 @@ void TestCommandScheduling() {
   config.pollMs = 5;
   config.scanRetryMs = 1000;
   config.burstWindowMs = 40;
-  config.idleTimeoutMs = 80;
+  config.hotLeaseMs = 80;
+  config.commandConfirmMs = 40;
+  config.warmHandleMs = 500;
+  config.coldCacheMs = 1000;
   config.ths.processes = {"__onclaw_missing_ths__.exe"};
   config.tdx.processes = {"__onclaw_missing_tdx__.exe"};
   config.commandObserver = [&](const std::string& target,
@@ -89,8 +92,11 @@ void TestCommandScheduling() {
   }
 
   std::this_thread::sleep_for(80ms);
+  const auto command = runtime.CommandState("client-b", "request-5");
+  assert(command && command->state == "timed_out");
   assert(!runtime.Snapshot().active);
-  assert(runtime.Snapshot().runtimeHealth == "idle");
+  assert(runtime.Snapshot().activityState == "warm");
+  assert(runtime.Snapshot().stale);
   assert(runtime.State().active);
   assert(runtime.Queue("tdx", "600005", "client-a", "request-6").accepted);
   runtime.Stop();
@@ -101,7 +107,7 @@ void TestPollingCacheAndRetry() {
   config.pollMs = 5;
   config.scanRetryMs = 80;
   config.scanTimeoutMs = 100;
-  config.idleTimeoutMs = 1000;
+  config.hotLeaseMs = 1000;
   config.ths.processes = {"__onclaw_missing_ths__.exe"};
 
   const auto executable = ExecutableName();
@@ -112,7 +118,8 @@ void TestPollingCacheAndRetry() {
                 {executable},
                 executable,
                 "invalid-pattern",
-                {static_cast<std::uint32_t>(address - base)},
+                {static_cast<std::uint32_t>(address - base + 8),
+                 static_cast<std::uint32_t>(address - base)},
                 true};
 
   std::memcpy(pollingCode, "600123\0", 7);
@@ -136,7 +143,7 @@ void TestPollingCacheAndRetry() {
   assert(stable.tdx.available);
   assert(stable.tdx.lastScanAt == initial.tdx.lastScanAt);
 
-  std::memcpy(pollingCode, "ABCDEF\0", 7);
+  std::memcpy(pollingCode, "12A3456\0", 8);
   assert(WaitUntil(
       [&] {
         runtime.State();
@@ -165,10 +172,107 @@ void TestPollingCacheAndRetry() {
       400ms));
   runtime.Stop();
 }
+
+void TestActivityLifecycle() {
+  auto config = onclaw_tdx_ths::DefaultRuntimeConfig();
+  config.pollMs = 5;
+  config.hotLeaseMs = 20;
+  config.warmHandleMs = 80;
+  config.coldCacheMs = 160;
+  config.ths.processes = {"__onclaw_missing_ths__.exe"};
+  config.tdx.processes = {"__onclaw_missing_tdx__.exe"};
+
+  onclaw_tdx_ths::Runtime runtime(config);
+  assert(runtime.Init(true).ok);
+  assert(WaitUntil([&] { return runtime.Snapshot().activityState == "warm"; },
+                   250ms));
+  assert(!runtime.Snapshot().active);
+  assert(runtime.Snapshot().stale);
+  assert(WaitUntil([&] { return runtime.Snapshot().activityState == "cool"; },
+                   250ms));
+  assert(WaitUntil([&] { return runtime.Snapshot().activityState == "cold"; },
+                   250ms));
+  const auto before = runtime.Snapshot().stateGeneration;
+  const auto fresh = runtime.State();
+  assert(fresh.activityState == "hot");
+  assert(!fresh.stale);
+  assert(fresh.stateGeneration > before);
+  runtime.Stop();
+}
+
+void TestWarmStopsPollingAndWakeRefreshes() {
+  auto config = onclaw_tdx_ths::DefaultRuntimeConfig();
+  config.pollMs = 5;
+  config.hotLeaseMs = 30;
+  config.warmHandleMs = 300;
+  config.coldCacheMs = 600;
+  config.ths.processes = {"__onclaw_missing_ths__.exe"};
+  const auto executable = ExecutableName();
+  const auto base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+  const auto address = reinterpret_cast<std::uintptr_t>(pollingCode);
+  config.tdx = {"tdx", {executable}, executable, "invalid-pattern",
+                {static_cast<std::uint32_t>(address - base)}, true};
+
+  std::memcpy(pollingCode, "600200\0", 7);
+  onclaw_tdx_ths::Runtime runtime(config);
+  assert(runtime.Init(true).ok);
+  assert(WaitUntil([&] { return runtime.Snapshot().tdx.code == "600200"; },
+                   300ms));
+  assert(runtime.Snapshot().runtimeHealth == "degraded");
+  assert(WaitUntil([&] { return runtime.Snapshot().activityState == "warm"; },
+                   250ms));
+  const auto generation = runtime.Snapshot().stateGeneration;
+  std::memcpy(pollingCode, "600201\0", 7);
+  std::this_thread::sleep_for(50ms);
+  assert(runtime.Snapshot().tdx.code == "600200");
+  assert(runtime.Snapshot().stateGeneration == generation);
+  const auto refreshed = runtime.State();
+  assert(!refreshed.stale);
+  assert(refreshed.tdx.code == "600201");
+  assert(refreshed.stateGeneration > generation);
+  runtime.Stop();
+}
+
+void TestCommandReadbackConfirmation() {
+  auto config = onclaw_tdx_ths::DefaultRuntimeConfig();
+  config.pollMs = 5;
+  config.burstWindowMs = 10;
+  config.commandConfirmMs = 200;
+  config.ths.processes = {"__onclaw_missing_ths__.exe"};
+  const auto executable = ExecutableName();
+  const auto base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+  const auto address = reinterpret_cast<std::uintptr_t>(pollingCode);
+  config.tdx = {"tdx", {executable}, executable, "invalid-pattern",
+                {static_cast<std::uint32_t>(address - base)}, true};
+  config.commandObserver = [](const std::string& target,
+                              const std::string& code) {
+    if (target == "tdx") std::memcpy(pollingCode, code.c_str(), 6);
+  };
+
+  std::memcpy(pollingCode, "600300\0", 7);
+  onclaw_tdx_ths::Runtime runtime(config);
+  assert(runtime.Init(true).ok);
+  assert(WaitUntil([&] { return runtime.Snapshot().tdx.available; }, 300ms));
+  assert(runtime.Queue("tdx", "600301", "client-confirm", "request-1")
+             .accepted);
+  assert(WaitUntil(
+      [&] {
+        const auto status =
+            runtime.CommandState("client-confirm", "request-1");
+        return status && status->state == "confirmed";
+      },
+      300ms));
+  assert(runtime.Snapshot().lastCommand &&
+         runtime.Snapshot().lastCommand->state == "confirmed");
+  runtime.Stop();
+}
 }  // namespace
 
 int main() {
   TestCommandScheduling();
   TestPollingCacheAndRetry();
+  TestActivityLifecycle();
+  TestWarmStopsPollingAndWakeRefreshes();
+  TestCommandReadbackConfirmation();
   return 0;
 }

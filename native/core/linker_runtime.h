@@ -11,6 +11,7 @@
 #include <string>
 #include <thread>
 #include <unordered_set>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -31,11 +32,33 @@ struct RuntimeConfig {
   std::uint32_t scanTimeoutMs = 2500;
   std::uint32_t commandTimeoutMs = 1500;
   std::uint32_t burstWindowMs = 300;
-  std::uint32_t idleTimeoutMs = 5000;
+  std::uint32_t hotLeaseMs = 10000;
+  std::uint32_t warmHandleMs = 300000;
+  std::uint32_t coldCacheMs = 600000;
+  std::uint32_t stateFreshnessMs = 500;
+  std::uint32_t discoveryRetryMinMs = 250;
+  std::uint32_t discoveryRetryMaxMs = 2000;
+  std::uint32_t scanRetryMaxMs = 60000;
+  std::uint32_t readFailureThreshold = 3;
+  std::uint32_t commandConfirmMs = 10000;
   std::uint32_t dedupeCapacity = 256;
   std::function<void(const std::string&, const std::string&)> commandObserver;
   EndpointConfig ths;
   EndpointConfig tdx;
+};
+
+struct CommandStatus {
+  std::string target;
+  std::string code;
+  std::string clientId;
+  std::string requestId;
+  std::string state;
+  std::string errorStage;
+  std::string message;
+  std::uint64_t queuedAt = 0;
+  std::uint64_t dispatchedAt = 0;
+  std::uint64_t completedAt = 0;
+  std::uint32_t win32Error = 0;
 };
 
 struct EndpointState {
@@ -57,11 +80,16 @@ struct RuntimeState {
   bool supported = true;
   bool active = false;
   std::uint64_t lastActivityAt = 0;
+  std::string activityState = "cold";
+  std::uint64_t stateGeneration = 0;
+  bool stale = true;
+  std::uint64_t refreshedAt = 0;
   std::string runtimeHealth = "idle";
   std::string licenseState = "unaccepted";
   std::string message;
   EndpointState ths{"ths"};
   EndpointState tdx{"tdx"};
+  std::optional<CommandStatus> lastCommand;
 };
 
 struct InitResult {
@@ -98,6 +126,8 @@ class Runtime {
   CommandResult Queue(const std::string& target, const std::string& code,
                       const std::string& clientId = "anonymous",
                       const std::string& requestId = "");
+  std::optional<CommandStatus> CommandState(const std::string& clientId,
+                                             const std::string& requestId);
   void Stop();
 
  private:
@@ -120,8 +150,22 @@ class Runtime {
     std::uint32_t pid = 0;
     std::uintptr_t base = 0;
     std::uint32_t size = 0;
+    std::uint64_t creationTime = 0;
+    std::uint32_t discoveryDelayMs = 0;
+    std::uint32_t resolveDelayMs = 0;
+    std::uint32_t readFailures = 0;
+    std::uintptr_t signatureAddress = 0;
+    std::vector<std::uint8_t> signatureBytes;
+    std::vector<bool> signatureMask;
+    TimePoint firstReadFailureAt{};
+    TimePoint nextSignatureAt{};
     TimePoint nextDiscoveryAt{};
     TimePoint nextResolveAt{};
+  };
+  struct DeferredAllocation {
+    void* process = nullptr;
+    void* address = nullptr;
+    TimePoint releaseAt{};
   };
   void Start();
   void Loop();
@@ -131,6 +175,7 @@ class Runtime {
   CommandLane& Lane(const std::string& target);
   EndpointSession& Session(const std::string& target);
   void ResetSession(EndpointSession* session);
+  void CloseSessionHandle(EndpointSession* session);
   void ResetSessions();
   void Poll(const RuntimeConfig& config, const EndpointConfig& endpoint);
   void ResolveOffset(void* process, std::uint32_t pid, std::uintptr_t base,
@@ -139,14 +184,22 @@ class Runtime {
   std::string ReadCode(void* process, std::uintptr_t base,
                        const EndpointConfig& config,
                        const EndpointState& state);
-  void ExecuteThs(std::uint32_t timeoutMs, const std::string& code);
-  void ExecuteTdx(const std::string& code);
+  bool ExecuteThs(std::uint32_t timeoutMs, const std::string& code,
+                  std::string* error, std::uint32_t* win32Error);
+  bool ExecuteTdx(const std::string& code, std::string* error,
+                  std::uint32_t* win32Error);
   void* FindMainWindow(std::uint32_t pid);
   EndpointState CopyEndpoint(const std::string& name);
   void StoreEndpoint(const EndpointState& endpoint);
   void SetUnavailable(const std::string& name, const std::string& error);
-  void SetError(const std::string& name, const std::string& error);
   void RecomputeHealth();
+  void UpdateLifecycle(TimePoint now, const RuntimeConfig& config,
+                       bool hasPendingCommands);
+  void CompleteConfirmations(TimePoint now, const RuntimeConfig& config);
+  void CleanupDeferredAllocations(TimePoint now);
+  void StoreCommandStatus(const CommandStatus& status);
+  std::string CommandKey(const std::string& clientId,
+                         const std::string& requestId) const;
 
   std::mutex mutex_;
   RuntimeConfig config_;
@@ -159,7 +212,13 @@ class Runtime {
   EndpointSession tdxSession_;
   std::deque<std::string> recentRequestOrder_;
   std::unordered_set<std::string> recentRequests_;
+  std::deque<std::string> commandOrder_;
+  std::unordered_map<std::string, CommandStatus> commandHistory_;
+  std::vector<CommandStatus> pendingConfirmations_;
+  std::deque<DeferredAllocation> deferredAllocations_;
   TimePoint activeUntil_{};
+  TimePoint lastBusinessActivity_{};
+  std::condition_variable stateCondition_;
   std::atomic<bool> running_{false};
   std::thread worker_;
 };

@@ -2,7 +2,6 @@ import argparse
 import json
 import os
 import sys
-import time
 from dataclasses import asdict
 
 from . import __version__
@@ -61,19 +60,17 @@ def run(argv=None) -> int:
                     unavailable = [target for target in targets if not getattr(state, target).available]
                     if unavailable:
                         raise RuntimeError(f"target unavailable: {', '.join(unavailable)}")
-                    commands = {target: asdict(client.set_code(target, args.code)) for target in targets}
-                    data = {"code": args.code, "targets": list(targets), "commands": commands, "confirmed": False}
                     if args.wait:
-                        deadline = time.monotonic() + args.timeout
-                        while time.monotonic() < deadline:
-                            state = client.get_state()
-                            if all(getattr(state, target).code == args.code for target in targets):
-                                data["confirmed"] = True
-                                data["state"] = {target: asdict(getattr(state, target)) for target in targets}
-                                break
-                            time.sleep(0.25)
-                        if not data["confirmed"]:
-                            raise TimeoutError("Timed out waiting for target confirmation")
+                        commands = {
+                            target: asdict(client.set_code_and_wait(target, args.code, args.timeout))
+                            for target in targets
+                        }
+                        data = {"code": args.code, "targets": list(targets),
+                                "commands": commands, "confirmed": True}
+                    else:
+                        commands = {target: asdict(client.set_code(target, args.code)) for target in targets}
+                        data = {"code": args.code, "targets": list(targets),
+                                "commands": commands, "confirmed": False}
         envelope = {"schemaVersion": 1, "ok": True, "command": args.command, "data": data}
         print(json.dumps(envelope, ensure_ascii=False) if args.json else json.dumps(envelope, ensure_ascii=False, indent=2))
         return 0

@@ -20,7 +20,9 @@ npx --no-install tdx-ths-linker --json --accept-license set 600825 --target tdx 
 npx --no-install tdx-ths-linker --json --accept-license set 600825 --target ths --wait
 ```
 
-`--wait` 会继续通过 Agent 轮询并确认最终状态。命令进入同一个全局调度器，不能把“已接受”误报为“目标已切换”。
+`--wait` 查询命令自身的结构化状态，直到 Agent 通过目标端读回确认 `confirmed`，
+或收到 `failed`/`timed_out`/`superseded`。它不再用一次全局状态读取推断命令成功。
+命令进入同一个全局调度器，不能把“已接受”误报为“目标已切换”。
 
 ## 退出码
 

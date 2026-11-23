@@ -36,7 +36,7 @@ test("Electron example isolates Agent HTTP access in its main process", async ()
   assert.match(preload, /contextBridge\.exposeInMainWorld/);
   assert.doesNotMatch(preload, /tdx-ths-linker\.node/);
   assert.doesNotMatch(html, /require\s*\(/);
-  assert.equal(JSON.parse(manifest).dependencies["tdx-ths-linker"], "0.1.5");
+  assert.equal(JSON.parse(manifest).dependencies["tdx-ths-linker"], "0.2.0");
 });
 
 test("DeepSeek Harness example uses a portable Skill and the npm JSON CLI", async () => {

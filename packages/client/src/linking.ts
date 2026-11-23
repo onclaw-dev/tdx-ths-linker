@@ -52,6 +52,10 @@ export function createStockLinkRuntime(options: StockLinkRuntimeOptions): StockL
     if (mode === "off") return;
     const state = await options.client.getState();
     options.onState?.(state);
+    if (state.stale) {
+      resetBaseline();
+      return;
+    }
     const targets = direction(mode);
     if (!targets) return;
 
@@ -90,7 +94,7 @@ export function createStockLinkRuntime(options: StockLinkRuntimeOptions): StockL
   };
 
   const schedule = (expectedGeneration: number): void => {
-    if (!running || generation !== expectedGeneration) return;
+    if (!running || mode === "off" || generation !== expectedGeneration) return;
     timer = globalThis.setTimeout(() => {
       void pollNow().catch(() => undefined).finally(() => schedule(expectedGeneration));
     }, interval);
@@ -121,6 +125,13 @@ export function createStockLinkRuntime(options: StockLinkRuntimeOptions): StockL
       if (nextMode !== mode) {
         mode = nextMode;
         resetBaseline();
+        generation += 1;
+        if (timer !== undefined) globalThis.clearTimeout(timer);
+        timer = undefined;
+        if (running && mode !== "off") {
+          const expectedGeneration = generation;
+          void pollNow().catch(() => undefined).finally(() => schedule(expectedGeneration));
+        }
       }
     },
     getMode: () => mode,

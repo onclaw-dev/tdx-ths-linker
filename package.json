@@ -1,6 +1,6 @@
 {
   "name": "onclaw-tdx-ths",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "private": true,
   "description": "GPL-licensed Onclaw TDX/THS integration",
   "type": "module",

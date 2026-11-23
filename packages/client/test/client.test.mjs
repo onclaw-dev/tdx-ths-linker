@@ -27,3 +27,20 @@ test("local Node client uses the Origin-less Agent HTTP boundary", async () => {
   assert.equal(calls[2][0], "http://127.0.0.1:17654/v1/set-code");
   assert.match(calls[2][2], /"clientId":"node-test"/);
 });
+
+test("Node client waits on command status rather than state inference", async () => {
+  let statusCalls = 0;
+  const request = async (url) => ({
+    ok: true,
+    json: async () => url.includes("/v1/set-code")
+      ? { ok: true, accepted: true, status: "accepted", target: "tdx", code: "600000",
+          clientId: "node-test", requestId: "request-1", message: "queued" }
+      : { target: "tdx", code: "600000", clientId: "node-test", requestId: "request-1",
+          state: ++statusCalls > 1 ? "confirmed" : "dispatched", errorStage: "",
+          message: "ok", queuedAt: 1, dispatchedAt: 2, completedAt: 3, win32Error: 0 },
+  });
+  const client = createAgentClient({ fetch: request, clientId: "node-test" });
+  const result = await client.setCodeAndWait("tdx", "600000", 500);
+  assert.equal(result.state, "confirmed");
+  assert.equal(statusCalls, 2);
+});
